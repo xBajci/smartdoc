@@ -1,0 +1,15 @@
+# Keep the flat layout required by the Nitro server bundle.
+nodeLinker: hoisted
+
+# Only esbuild needs an install script; sharp uses prebuilt platform packages.
+allowBuilds:
+  esbuild: true
+  sharp: false
+
+minimumReleaseAgeExclude:
+  - '@ai-sdk/anthropic@4.0.102'
+  - '@ai-sdk/gateway@4.0.143'
+  - '@ai-sdk/openai@4.0.115'
+  - '@ai-sdk/provider-utils@5.0.79'
+  - ai@7.0.170
+  - lucide-react@1.72.0

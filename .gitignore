@@ -1,0 +1,30 @@
+node_modules
+
+# Build output
+dist
+.output
+.nitro
+
+# Local environment files — never commit secrets
+.env
+.env.*
+!.env.example
+
+# Tooling and OS
+.vercel
+.DS_Store
+*.log
+.claude/settings.local.json
+
+# TanStack Start build cache.
+.tanstack/
+
+# Playwright
+test-results
+playwright-report
+
+# Local file storage
+.data
+
+# Server setup with hosts, users and paths — kept out of the public repository
+docs/eng/db_setup.md

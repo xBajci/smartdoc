@@ -1,0 +1,305 @@
+import { expect, test, type Page } from '@playwright/test'
+import { openAdminPage, signIn } from '../support/admin'
+import { chatSessionIds, forgetChatTraces, resetArchive } from '../support/database'
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+const FIRST = 'Kdo vymění veřejné osvětlení?'
+
+/** Asks in the visitor's chat on the current page and waits for each answer. */
+async function visitorAsks(page: Page, ...questions: string[]) {
+  const chat = page.getByRole('complementary', { name: 'Chat nad archivem' })
+  const input = chat.getByRole('textbox', { name: 'Otázka pro archiv' })
+  const answers = chat.locator('.chat-message--archive')
+  const before = await answers.count()
+  for (const [index, question] of questions.entries()) {
+    await input.fill(question)
+    await input.press('Enter')
+    await expect(answers).toHaveCount(before + index + 1)
+    await expect(chat.locator('.chat-message--pending')).toHaveCount(0)
+  }
+}
+
+/** Asks in the debugger's box; the box empties once the answer is in. */
+async function tryQuestion(page: Page, question: string) {
+  const box = page.getByRole('textbox', { name: 'Zkušební otázka' })
+  await box.fill(question)
+  await page.getByRole('button', { name: 'Zeptat se' }).click()
+  await expect(box).toHaveValue('')
+}
+
+/** The rows of the list of sessions; shown only while no session is open. */
+const sessionRows = (page: Page) => page.locator('.sessions .session:has(.session__open)')
+/** The open session: its questions in order. */
+const sessionView = (page: Page) => page.locator('.trace-session')
+const questionTraces = (page: Page) => sessionView(page).locator('.session')
+const questionTrace = (page: Page, question: string) =>
+  questionTraces(page).filter({
+    has: page.locator(`summary[aria-label="Zobrazit postup: ${question}"]`),
+  })
+/** The block "Historie pro model" of one opened question. */
+const historyBlock = (page: Page, question: string) =>
+  questionTrace(page, question).locator('.call').filter({ hasText: 'Historie pro model' })
+
+async function openQuestion(page: Page, question: string) {
+  const trace = questionTrace(page, question)
+  if (
+    !(await trace
+      .locator('details')
+      .first()
+      .evaluate((e: HTMLDetailsElement) => e.open))
+  ) {
+    await trace.locator('summary').first().click()
+  }
+  await expect(historyBlock(page, question)).toBeVisible()
+}
+
+// Scenarios: features/admin/ladeni-chatu.feature
+test.describe('Ladění chatu', () => {
+  test.beforeEach(resetArchive)
+
+  test('Bez přihlášení není postup otázek vidět', async ({ page }) => {
+    await page.goto('/sprava/chat')
+    await expect(page.getByLabel('Heslo')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Ladění chatu' })).toHaveCount(0)
+  })
+
+  test('Zkušební otázka ukáže celý postup krok za krokem', async ({ page }) => {
+    await signIn(page)
+    await openAdminPage(page, 'Ladění chatu')
+    await expect(page.getByText('Zatím se nikdo nezeptal.')).toBeVisible()
+
+    await tryQuestion(page, FIRST)
+
+    // The question opened a session of its own, with the trace unfolded.
+    await expect(page.getByRole('heading', { name: 'Rozhovor' })).toBeVisible()
+    const trace = questionTraces(page).first()
+    await expect(trace.locator('summary').first()).toContainText(FIRST)
+    await expect(trace.locator('summary').first()).toContainText('Hledání: 1')
+
+    // The model asks for a search, the search runs both branches, the model answers.
+    const steps = trace.locator('.trace-step')
+    await expect(steps).toHaveCount(3)
+    await expect(steps.nth(0)).toContainText('Krok 1: volání modelu')
+    await expect(steps.nth(0)).toContainText('fake:chat')
+    await expect(steps.nth(0)).toContainText('Model žádá hledání: Kdo vymění veřejné osvětlení?')
+
+    const search = steps.nth(1)
+    await expect(search).toContainText('Hledání: „Kdo vymění veřejné osvětlení?“')
+    const words = search.locator('.trace-branch').filter({ hasText: 'Větev slov (BM25)' })
+    await expect(words.getByRole('row').nth(1)).toContainText('Zápis z 9. zasedání zastupitelstva')
+    await expect(words.getByRole('columnheader', { name: 'Skóre BM25' })).toBeVisible()
+    const meaning = search.locator('.trace-branch').filter({ hasText: 'Větev významu (embedding)' })
+    await expect(meaning.getByRole('row').nth(1)).toContainText(
+      'Zápis z 9. zasedání zastupitelstva',
+    )
+    // The decision model weighs the branches before the fusion and scores the pieces after it.
+    await expect(search).toContainText('Váhy větví: slova 1,00, význam 1,00')
+    await expect(search).toContainText(
+      'dotaz je na přesná slova 20 %, na obojí 60 %, na význam 20 %',
+    )
+    const reranker = search.locator('.trace-decision').filter({ hasText: 'Reranker: jak dobře' })
+    await expect(reranker).toContainText('fake:decision')
+    await expect(reranker.getByRole('columnheader', { name: 'Skóre rerankeru' })).toBeVisible()
+    await expect(reranker.getByRole('row').nth(1)).toContainText(
+      'Zápis z 9. zasedání zastupitelstva',
+    )
+    await expect(reranker.getByRole('row').nth(1)).toContainText('ano')
+    await expect(reranker.getByRole('columnheader', { name: 'Pořadí bez Jeva' })).toBeVisible()
+    await expect(search).toContainText('Po rerankeru: tyto úryvky dostal model')
+
+    // The order without the decision model is kept beside, only to compare.
+    const compare = search.locator('.trace-compare')
+    await expect(compare).toContainText('Porovnání: co by model dostal bez Jeva')
+    await expect(compare).toContainText('Stejných úryvků:')
+    const plain = compare.locator('.trace-passages li').first()
+    await expect(plain).toContainText('1. Zápis z 9. zasedání zastupitelstva')
+    await expect(plain).toContainText('reranker: 0,75')
+    await expect(plain).toContainText('dostal i s Jevem')
+    const passage = search.locator('.trace-passages li').first()
+    await expect(passage).toContainText('[1] Zápis z 9. zasedání zastupitelstva')
+    await expect(passage).toContainText('strana 2')
+    await expect(passage).toContainText('slova: 1, význam: 1')
+    await expect(passage).toContainText('po RRF 1., reranker: 0,75')
+    await passage.locator('summary').click()
+    await expect(passage).toContainText('výměnu veřejného osvětlení v ulici Zahradní')
+
+    await expect(steps.nth(2)).toContainText('Krok 2: volání modelu')
+    await expect(steps.nth(2)).toContainText('Elektro Haná')
+    await expect(trace).toContainText('Odpověď návštěvníkovi')
+
+    await trace.getByText('Nastavení a zadání, se kterým otázka běžela').click()
+    await expect(trace.locator('.trace-setup')).toContainText('maxSearches')
+    await expect(trace.locator('.trace-setup')).toContainText('fake:decision')
+    await expect(trace.locator('.trace-setup')).toContainText('hledej_v_archivu')
+  })
+
+  test('Otázka návštěvníka je v ladění a její cena v nákladech', async ({ page }) => {
+    await page.goto('/')
+    await visitorAsks(page, FIRST, 'Kolik?')
+
+    await signIn(page)
+    await openAdminPage(page, 'Ladění chatu')
+    await expect(sessionRows(page)).toHaveCount(1)
+    await expect(sessionRows(page)).toContainText('Otázek: 2')
+    await page.getByRole('button', { name: `Otevřít rozhovor: ${FIRST}` }).click()
+    // The follow-up found nothing by its own words and searched again with the first question.
+    const followUp = questionTrace(page, 'Kolik?')
+    await expect(followUp.locator('summary').first()).toContainText('Hledání: 2')
+    await openQuestion(page, 'Kolik?')
+    await expect(followUp).toContainText('Hledání: „Kdo vymění veřejné osvětlení? Kolik?“')
+
+    // What the question cost is in the costs, under the models that answered it.
+    await openAdminPage(page, 'Náklady')
+    await expect(page.getByRole('row').filter({ hasText: 'fake:chat' }).first()).toBeVisible()
+  })
+
+  test('Dvě otázky jednoho chatu jsou jeden rozhovor', async ({ page, context }) => {
+    await page.goto('/')
+    await visitorAsks(page, FIRST, 'Kolik?')
+
+    await signIn(page)
+    await openAdminPage(page, 'Ladění chatu')
+    await expect(sessionRows(page)).toHaveCount(1)
+    await expect(sessionRows(page).locator('.session__title')).toHaveText(FIRST)
+    await expect(sessionRows(page)).toContainText('Otázek: 2')
+
+    await page.getByRole('button', { name: `Otevřít rozhovor: ${FIRST}` }).click()
+    await expect(page.getByRole('heading', { name: 'Rozhovor' })).toBeVisible()
+    const id = await sessionView(page).locator('.trace-session__id code').textContent()
+    expect(id).toMatch(UUID)
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    await page.getByRole('button', { name: 'Kopírovat id' }).click()
+    await expect(page.getByRole('button', { name: 'Zkopírováno' })).toBeVisible()
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(id)
+
+    const summaries = questionTraces(page).locator(':scope > details > summary')
+    await expect(summaries).toHaveCount(2)
+    await expect(summaries.nth(0)).toContainText(FIRST)
+    await expect(summaries.nth(1)).toContainText('Kolik?')
+  })
+
+  test('Druhá otázka ukazuje historii, kterou model dostal', async ({ page }) => {
+    await page.goto('/')
+    await visitorAsks(page, FIRST, 'Kolik?')
+
+    await signIn(page)
+    await openAdminPage(page, 'Ladění chatu')
+    await page.getByRole('button', { name: `Otevřít rozhovor: ${FIRST}` }).click()
+    await openQuestion(page, 'Kolik?')
+    const turns = historyBlock(page, 'Kolik?').locator('.trace-history li')
+    await expect(turns).toHaveCount(2)
+    await expect(turns.nth(0)).toContainText('Návštěvník')
+    await expect(turns.nth(0)).toContainText(FIRST)
+    await expect(turns.nth(1)).toContainText('Archiv')
+    await expect(turns.nth(1)).toContainText('Elektro Haná')
+
+    await openQuestion(page, FIRST)
+    await expect(historyBlock(page, FIRST)).toContainText('Model nedostal žádnou historii')
+  })
+
+  test('Správce pokračuje v rozhovoru zkušební otázkou', async ({ page }) => {
+    await signIn(page)
+    await openAdminPage(page, 'Ladění chatu')
+    await tryQuestion(page, FIRST)
+    await expect(page.getByRole('heading', { name: 'Rozhovor' })).toBeVisible()
+    await expect(page.getByText('Zkušební otázka naváže na otevřený rozhovor.')).toBeVisible()
+
+    await tryQuestion(page, 'Kolik?')
+    await expect(questionTraces(page)).toHaveCount(2)
+    const followUp = questionTrace(page, 'Kolik?')
+    await expect(followUp.locator('summary').first()).toContainText('Hledání: 2')
+    await expect(historyBlock(page, 'Kolik?').locator('.trace-history li')).toHaveCount(2)
+    await expect(historyBlock(page, 'Kolik?')).toContainText(FIRST)
+  })
+
+  test('„Nový rozhovor“ začne nový rozhovor', async ({ page }) => {
+    await signIn(page)
+    await openAdminPage(page, 'Ladění chatu')
+    await tryQuestion(page, FIRST)
+    await expect(page.getByRole('heading', { name: 'Rozhovor' })).toBeVisible()
+
+    await page.getByRole('button', { name: 'Nový rozhovor' }).click()
+    await expect(page.getByRole('heading', { name: 'Rozhovor' })).toHaveCount(0)
+    await expect(sessionRows(page)).toHaveCount(1)
+
+    await tryQuestion(page, 'Kolik?')
+    await expect(questionTraces(page)).toHaveCount(1)
+    await expect(questionTrace(page, 'Kolik?').locator('summary').first()).toContainText(
+      'Hledání: 1',
+    )
+    await expect(historyBlock(page, 'Kolik?')).toContainText('Model nedostal žádnou historii')
+
+    await page.getByRole('button', { name: 'Nový rozhovor' }).click()
+    await expect(sessionRows(page)).toHaveCount(2)
+    await expect(sessionRows(page).first().locator('.session__title')).toHaveText('Kolik?')
+  })
+
+  test('Otázka se známým id rozhovoru naváže na rozhovor a historii dodá server', async ({
+    page,
+  }) => {
+    await page.goto('/')
+    await visitorAsks(page, FIRST)
+
+    await signIn(page)
+    await openAdminPage(page, 'Ladění chatu')
+    await page.getByRole('button', { name: `Otevřít rozhovor: ${FIRST}` }).click()
+    await expect(questionTraces(page)).toHaveCount(1)
+    // The administrator's page sent only the session id; the history came from the server.
+    await tryQuestion(page, 'Kolik?')
+    await expect(questionTraces(page)).toHaveCount(2)
+    const followUp = questionTrace(page, 'Kolik?')
+    await expect(followUp.locator('summary').first()).toContainText('Hledání: 2')
+    const turns = historyBlock(page, 'Kolik?').locator('.trace-history li')
+    await expect(turns).toHaveCount(2)
+    await expect(turns.nth(0)).toContainText(FIRST)
+    await expect(turns.nth(1)).toContainText('Elektro Haná')
+  })
+
+  test('Otázka s neznámým id rozhovoru začne nový rozhovor', async ({ page }) => {
+    await page.goto('/')
+    await visitorAsks(page, FIRST)
+    const [forgotten] = await chatSessionIds()
+    expect(forgotten).toMatch(UUID)
+    await forgetChatTraces()
+
+    // The panel still sends the old id; the server knows no such session and starts another.
+    await visitorAsks(page, 'Kolik?')
+    const remaining = await chatSessionIds()
+    expect(remaining).toHaveLength(1)
+    expect(remaining[0]).not.toBe(forgotten)
+
+    await signIn(page)
+    await openAdminPage(page, 'Ladění chatu')
+    await expect(sessionRows(page)).toHaveCount(1)
+    await expect(sessionRows(page)).toContainText('Otázek: 1')
+    await page.getByRole('button', { name: 'Otevřít rozhovor: Kolik?' }).click()
+    await expect(sessionView(page).locator('.trace-session__id code')).toHaveText(
+      remaining[0] ?? '',
+    )
+    await expect(questionTraces(page)).toHaveCount(1)
+    await expect(questionTrace(page, 'Kolik?').locator('summary').first()).toContainText(
+      'Hledání: 1',
+    )
+    await openQuestion(page, 'Kolik?')
+    await expect(historyBlock(page, 'Kolik?')).toContainText('Model nedostal žádnou historii')
+  })
+
+  test('Neúspěšná otázka není v historii další otázky', async ({ page }) => {
+    await page.goto('/')
+    await visitorAsks(page, FIRST, 'selhani', 'Kolik?')
+
+    await signIn(page)
+    await openAdminPage(page, 'Ladění chatu')
+    await expect(sessionRows(page)).toHaveCount(1)
+    await expect(sessionRows(page)).toContainText('Otázek: 3')
+    await expect(sessionRows(page).locator('.status--failed')).toBeVisible()
+    await page.getByRole('button', { name: `Otevřít rozhovor: ${FIRST}` }).click()
+    await expect(questionTraces(page)).toHaveCount(3)
+
+    await openQuestion(page, 'Kolik?')
+    const history = historyBlock(page, 'Kolik?')
+    await expect(history.locator('.trace-history li')).toHaveCount(2)
+    await expect(history).toContainText(FIRST)
+    await expect(history).not.toContainText('selhani')
+  })
+})
