@@ -9,6 +9,8 @@ export const DATABASE_SERVER_URL = `${server}/postgres`
 export const DATABASE_NAME = 'hm_archiv_e2e'
 export const DATABASE_URL = `${server}/${DATABASE_NAME}`
 export const STORAGE_DIR = '.data/e2e-storage'
+/** The public address the application under test believes it has. */
+export const SITE_URL = 'https://archiv.example.cz'
 
 /** What the application under test runs with. Never the developer's own `.env`. */
 export function serverEnvironment(port: number): Record<string, string> {
@@ -17,6 +19,8 @@ export function serverEnvironment(port: number): Record<string, string> {
     HOST: '127.0.0.1',
     DATABASE_URL,
     STORAGE_DIR,
+    // With a trailing slash on purpose: the application must not double it.
+    SITE_URL: `${SITE_URL}/`,
     SESSION_SECRET: 'e2e-only-session-secret-not-used-anywhere-else',
     ADMIN_PASSWORD_HASH: hashPassword(TEST_PASSWORD),
     // Local storage even if the developer's shell carries a blob token.

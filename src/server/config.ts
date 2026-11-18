@@ -26,3 +26,13 @@ export function storageMode(): 'blob' | 'local' {
 export function localStorageDirectory(): string {
   return process.env.STORAGE_DIR ?? '.data/storage'
 }
+
+/**
+ * The public address of the site, e.g. `https://archiv.example.cz`, without a
+ * trailing slash. Behind a proxy the application sees only the proxy's own
+ * address, so links meant for the outside take this one. Null when not set.
+ */
+export function siteUrl(): string | null {
+  const url = process.env.SITE_URL?.trim().replace(/\/+$/, '')
+  return url ? url : null
+}

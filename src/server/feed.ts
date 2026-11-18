@@ -18,8 +18,8 @@ function escapeXml(text: string): string {
 /**
  * The RSS feed of the archive: one item for every public document, newest
  * added first. A reader's program asks for it again and again, so a document
- * shows there as soon as its processing ends well. `origin` is the address the
- * feed was asked at, e.g. `https://archiv.example.cz`.
+ * shows there as soon as its processing ends well. `origin` is the public
+ * address of the site, e.g. `https://archiv.example.cz`.
  */
 export async function buildFeed(origin: string): Promise<string> {
   const rows = await getDatabase()
