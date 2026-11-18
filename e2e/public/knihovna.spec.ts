@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { addDocuments, resetArchive } from '../support/database'
+import { addDocuments, addLongNamedDocument, resetArchive } from '../support/database'
 import { TEST_PASSWORD } from '../support/environment'
 
 // Scenarios: features/public/knihovna.feature
@@ -70,6 +70,32 @@ test.describe('Veřejná knihovna dokumentů', () => {
     await expect(page.locator('.preview-card')).toHaveCount(2)
     await expect(page.getByRole('searchbox')).toHaveValue('zápis')
     await expect(page.getByRole('radio', { name: 'Náhled' })).toBeChecked()
+  })
+
+  test('Karta s náhledem se vejde do své šířky i s dlouhým názvem souboru', async ({ page }) => {
+    await addLongNamedDocument()
+    await page.goto('/?zobrazeni=nahled&q=Dlouhý název')
+    const card = page.locator('.preview-card')
+    await expect(card).toHaveCount(1)
+
+    const widths = await card.evaluate((element) => {
+      const width = (selector: string) =>
+        element.querySelector(selector)?.getBoundingClientRect().width ?? Infinity
+      const filename = element.querySelector('.document-filename')
+      return {
+        card: element.getBoundingClientRect().width,
+        picture: width('.preview-card__picture'),
+        body: width('.preview-card__body'),
+        // More text than room: the browser shortens the line with an ellipsis.
+        filenameCut: filename !== null && filename.scrollWidth > filename.clientWidth,
+        filenameHeight: filename?.getBoundingClientRect().height ?? Infinity,
+      }
+    })
+    expect(widths.picture).toBeLessThanOrEqual(widths.card)
+    expect(widths.body).toBeLessThanOrEqual(widths.card)
+    expect(widths.filenameCut).toBe(true)
+    // One line of the small file-name text.
+    expect(widths.filenameHeight).toBeLessThan(24)
   })
 
   test('Filtr podle neznámého roku', async ({ page }) => {

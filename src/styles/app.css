@@ -714,6 +714,9 @@ input[aria-invalid='true'] {
 
 .preview-card {
   display: grid;
+  /* Without a zero minimum the column grows to the longest unbroken line (the
+     one-line file name) and the card cuts its own content off at the right edge. */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto 1fr;
   overflow: hidden;
 }

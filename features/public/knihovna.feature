@@ -43,6 +43,12 @@ Feature: Veřejná knihovna dokumentů
     Then vidí 2 karty s náhledem
     And pole hledání stále obsahuje "zápis"
 
+  Scenario: Karta s náhledem se vejde do své šířky i s dlouhým názvem souboru
+    Given v archivu je dokument "Dlouhý název" s názvem souboru delším, než je karta široká
+    When návštěvník ho najde v zobrazení "Náhled"
+    Then obrázek ani text karty nepřesahují její okraj
+    And název souboru je na jednom řádku a na konci zkrácený
+
   Scenario: Filtr podle neznámého roku
     When návštěvník vybere rok "Neznámý rok"
     Then vidí dokument "Kostel od polní cesty"

@@ -69,6 +69,33 @@ export async function addDocuments(count: number) {
   )
 }
 
+/** A file name far longer than a preview card is wide. */
+export const LONG_FILENAME =
+  'Zmena c. 2 UP Horni Mostenice - II. Oduvodneni zmeny uzemniho planu - navrh pro verejne projednani.pdf'
+
+/** Adds one ready document named `Dlouhý název` whose file name is `LONG_FILENAME`. It has no file. */
+export async function addLongNamedDocument() {
+  await withDatabase((database) =>
+    database.insert(schema.documents).values({
+      id: 'dlouhy-nazev',
+      originalFilename: LONG_FILENAME,
+      title: 'Dlouhý název',
+      titleSource: 'manual',
+      format: 'pdf',
+      mimeType: 'application/pdf',
+      sizeBytes: 1000,
+      sha256: 'dlouhy-nazev',
+      storageKey: 'documents/dlouhy-nazev',
+      categoryId: 'nezarazene',
+      categorySource: 'manual',
+      addedAt: new Date(Date.UTC(2020, 0, 1)),
+      status: 'ready',
+      hasText: true,
+      pageCount: 1,
+    }),
+  )
+}
+
 /** The ids of every chat session that has a question, in no particular order. */
 export async function chatSessionIds(): Promise<string[]> {
   return withDatabase(async (database) => {
