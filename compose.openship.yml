@@ -1,0 +1,17 @@
+# Production stack on Openship. docker-compose.yml stays for the local dev database.
+# Openship fills the ${...} values from the project's environment variables.
+services:
+  app:
+    build: .
+    ports:
+      # Published straight to the internet, the same way as pgAdmin on 5050.
+      - '0.0.0.0:3000:3000'
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      SESSION_SECRET: ${SESSION_SECRET}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH}
+      STORAGE_DIR: ${STORAGE_DIR}
+      VITE_DEMO: ${VITE_DEMO}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      TYPESAFE_API_KEY: ${TYPESAFE_API_KEY}
+    restart: unless-stopped
