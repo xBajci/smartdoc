@@ -1,0 +1,197 @@
+{
+  "$schema": "https://openship.io/app.schema.json",
+  "id": "postgresql-textsearch",
+  "name": "PostgreSQL 17 + pgvector + pg_textsearch",
+  "description": "One PostgreSQL 17 server per app with production, preview and test databases, each with its own role. pgvector and pg_textsearch (BM25) are preloaded.",
+  "kind": "template",
+  "logo": "postgresql",
+  "category": "database",
+  "framework": "docker-compose",
+  "services": [
+    {
+      "name": "postgres",
+      "restart": "unless-stopped",
+      "build": {
+        "dockerfile": "# Postgres 17 with pgvector (embeddings) and pg_textsearch (BM25 ranking).\nFROM pgvector/pgvector:0.8.7-pg17\n\n# The architecture comes from dpkg, not TARGETARCH: the legacy builder leaves TARGETARCH empty.\nARG PG_TEXTSEARCH_VERSION=1.5.1\n\nRUN apt-get update \\\n  && apt-get install -y --no-install-recommends ca-certificates curl unzip \\\n  && curl -fsSL -o /tmp/pg-textsearch.zip \\\n    \"https://github.com/timescale/pg_textsearch/releases/download/v${PG_TEXTSEARCH_VERSION}/pg-textsearch-v${PG_TEXTSEARCH_VERSION}-pg17-$(dpkg --print-architecture).zip\" \\\n  && unzip /tmp/pg-textsearch.zip -d /tmp/pg-textsearch \\\n  && dpkg -i /tmp/pg-textsearch/*.deb \\\n  && rm -rf /tmp/pg-textsearch /tmp/pg-textsearch.zip /var/lib/apt/lists/*\n\n# pg_textsearch must be loaded when the server starts.\nCMD [\"postgres\", \"-c\", \"shared_preload_libraries=pg_textsearch\"]\n"
+      },
+      "environment": {
+        "POSTGRES_USER": "openship",
+        "POSTGRES_DB": "postgres",
+        "DB_BASE_NAME": "{{config:DB_BASE_NAME}}"
+      },
+      "secretEnv": [
+        "POSTGRES_PASSWORD",
+        "APP_PROD_PASSWORD",
+        "APP_PREVIEW_PASSWORD",
+        "APP_TEST_PASSWORD"
+      ],
+      "volumes": ["postgres_data:/var/lib/postgresql/data"],
+      "healthcheck": {
+        "test": ["CMD-SHELL", "pg_isready -U \"$POSTGRES_USER\" -d postgres"],
+        "interval": "10s",
+        "timeout": "5s",
+        "retries": 12,
+        "startPeriod": "20s"
+      },
+      "resources": {
+        "cpuCores": 0.5,
+        "memoryMb": 512,
+        "diskMb": 4096
+      }
+    }
+  ],
+  "configFields": [
+    {
+      "service": "postgres",
+      "key": "DB_BASE_NAME",
+      "label": "Database base name",
+      "required": true
+    },
+    {
+      "service": "postgres",
+      "key": "POSTGRES_PASSWORD",
+      "label": "Database administrator password",
+      "generate": "secret",
+      "secret": true
+    },
+    {
+      "service": "postgres",
+      "key": "APP_PROD_PASSWORD",
+      "label": "Production database password",
+      "generate": "secret",
+      "secret": true
+    },
+    {
+      "service": "postgres",
+      "key": "APP_PREVIEW_PASSWORD",
+      "label": "Preview database password",
+      "generate": "secret",
+      "secret": true
+    },
+    {
+      "service": "postgres",
+      "key": "APP_TEST_PASSWORD",
+      "label": "Test database password",
+      "generate": "secret",
+      "secret": true
+    }
+  ],
+  "files": [
+    {
+      "service": "postgres",
+      "path": "/docker-entrypoint-initdb.d/openship-init.sh",
+      "content": "#!/bin/sh\n# Creates <DB_BASE_NAME>_prod, _preview and _test, each owned by its own login role.\nset -eu\n\n# Stop with a clear message instead of creating databases named \"_prod\".\ncase \"${DB_BASE_NAME:-}\" in\n  ''|*[!a-z0-9_]*|[0-9]*)\n    echo \"openship-init: DB_BASE_NAME is missing or invalid: '${DB_BASE_NAME:-}'\" >&2\n    exit 1\n    ;;\nesac\n\ncreate_database() {\n  env=\"$1\"\n  password=\"$2\"\n  db=\"${DB_BASE_NAME}_${env}\"\n  role=\"app_${env}\"\n\n  psql -v ON_ERROR_STOP=1 --username \"$POSTGRES_USER\" --dbname postgres \\\n    --set db=\"$db\" --set role=\"$role\" --set password=\"$password\" <<'SQL'\nCREATE ROLE :\"role\" WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE CONNECTION LIMIT 20 PASSWORD :'password';\nCREATE DATABASE :\"db\" OWNER :\"role\";\n-- Only the owner may connect, so no environment can reach another one's database.\nREVOKE ALL ON DATABASE :\"db\" FROM PUBLIC;\nSQL\n\n  # These extensions need the administrator; the migrations then find them in place.\n  psql -v ON_ERROR_STOP=1 --username \"$POSTGRES_USER\" --dbname \"$db\" <<'SQL'\nCREATE EXTENSION IF NOT EXISTS vector;\nCREATE EXTENSION IF NOT EXISTS pg_textsearch;\nCREATE EXTENSION IF NOT EXISTS unaccent;\nSQL\n}\n\ncreate_database prod \"$APP_PROD_PASSWORD\"\ncreate_database preview \"$APP_PREVIEW_PASSWORD\"\ncreate_database test \"$APP_TEST_PASSWORD\"\n"
+    }
+  ],
+  "connection": {
+    "title": "Connect to PostgreSQL",
+    "outputs": [
+      {
+        "id": "prodUrl",
+        "label": "Production DATABASE_URL",
+        "source": "template:postgresql://app_prod:{{env:postgres:APP_PROD_PASSWORD}}@postgres:5432/{{env:postgres:DB_BASE_NAME}}_prod",
+        "service": "postgres",
+        "secret": true,
+        "envKey": "DATABASE_URL",
+        "recommended": true
+      },
+      {
+        "id": "previewUrl",
+        "label": "Preview DATABASE_URL",
+        "source": "template:postgresql://app_preview:{{env:postgres:APP_PREVIEW_PASSWORD}}@postgres:5432/{{env:postgres:DB_BASE_NAME}}_preview",
+        "service": "postgres",
+        "secret": true,
+        "envKey": "DATABASE_URL"
+      },
+      {
+        "id": "testUrl",
+        "label": "Test DATABASE_URL",
+        "source": "template:postgresql://app_test:{{env:postgres:APP_TEST_PASSWORD}}@postgres:5432/{{env:postgres:DB_BASE_NAME}}_test",
+        "service": "postgres",
+        "secret": true,
+        "envKey": "DATABASE_URL"
+      },
+      {
+        "id": "baseName",
+        "label": "Database base name",
+        "source": "env:postgres:DB_BASE_NAME"
+      },
+      {
+        "id": "password",
+        "label": "Database administrator password (user openship)",
+        "source": "env:postgres:POSTGRES_PASSWORD",
+        "secret": true
+      },
+      {
+        "id": "prodPassword",
+        "label": "Production password (user app_prod)",
+        "source": "env:postgres:APP_PROD_PASSWORD",
+        "secret": true
+      },
+      {
+        "id": "previewPassword",
+        "label": "Preview password (user app_preview)",
+        "source": "env:postgres:APP_PREVIEW_PASSWORD",
+        "secret": true
+      },
+      {
+        "id": "testPassword",
+        "label": "Test password (user app_test)",
+        "source": "env:postgres:APP_TEST_PASSWORD",
+        "secret": true
+      }
+    ],
+    "guide": {
+      "defaultMode": "internal",
+      "useHint": "Use the production, preview or test URL in the matching project environment."
+    }
+  },
+  "endpoints": [
+    {
+      "service": "postgres",
+      "port": 5432,
+      "label": "PostgreSQL",
+      "kind": "tcp",
+      "defaultMode": "port",
+      "allowedModes": ["internal", "port"]
+    }
+  ],
+  "provides": [
+    {
+      "id": "postgres",
+      "category": "database",
+      "outputRefs": ["prodUrl", "previewUrl", "testUrl"]
+    }
+  ],
+  "minResources": {
+    "cpuCores": 1,
+    "memoryMb": 1024
+  },
+  "tags": ["postgres", "pgvector", "pg_textsearch", "bm25"],
+  "installLayout": {
+    "settings": "single",
+    "columns": 1
+  },
+  "settings": [
+    {
+      "id": "general",
+      "label": "Setup",
+      "columns": 1,
+      "fields": [
+        {
+          "service": "postgres",
+          "key": "DB_BASE_NAME",
+          "label": "Database base name",
+          "type": "text",
+          "placeholder": "myapp",
+          "installStep": true,
+          "required": true,
+          "pattern": "^[a-z_][a-z0-9_]{0,54}$",
+          "patternError": "Use lowercase letters, digits and underscores, starting with a letter or underscore (max 55).",
+          "help": "Creates <name>_prod, <name>_preview and <name>_test, for example myapp_prod. Used only on the first start.",
+          "fullWidth": true
+        }
+      ]
+    }
+  ]
+}

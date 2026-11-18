@@ -3,8 +3,6 @@ services:
     # Built here: the stock image has neither pgvector nor pg_textsearch.
     build: ./docker/postgres
     image: hm-archiv-postgres:17
-    # pg_textsearch must be loaded when the server starts.
-    command: ['postgres', '-c', 'shared_preload_libraries=pg_textsearch']
     ports:
       # 5434, so it cannot collide with a Postgres of another project.
       - '5434:5432'
