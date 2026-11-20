@@ -35,17 +35,19 @@ import {
   Pencil,
   Plus,
   RotateCw,
+  Rss,
   Search,
   Send,
   Settings,
-  Rss,
   Tag,
+  ThumbsDown,
+  ThumbsUp,
   Trash2,
   TriangleAlert,
+  type LucideIcon,
   Upload,
   User,
   X,
-  type LucideIcon,
 } from 'lucide-react'
 
 /**
@@ -100,6 +102,8 @@ const ICONS = {
   tag: Tag,
   rss: Rss,
   grip: GripVertical,
+  thumbUp: ThumbsUp,
+  thumbDown: ThumbsDown,
 } satisfies Record<string, LucideIcon>
 
 export type IconName = keyof typeof ICONS

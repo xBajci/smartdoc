@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { openAdminPage, signIn } from '../support/admin'
 import { chatSessionIds, forgetChatTraces, resetArchive } from '../support/database'
 
@@ -17,6 +17,24 @@ async function visitorAsks(page: Page, ...questions: string[]) {
     await expect(answers).toHaveCount(before + index + 1)
     await expect(chat.locator('.chat-message--pending')).toHaveCount(0)
   }
+}
+
+/** Says under the newest answer of the visitor's chat whether it helped, and waits until it is stored. */
+async function visitorRates(page: Page, name: 'Odpověď pomohla' | 'Odpověď nepomohla') {
+  const row = page
+    .getByRole('complementary', { name: 'Chat nad archivem' })
+    .locator('.chat-message--archive')
+    .last()
+    .getByRole('group', { name: 'Hodnocení odpovědi' })
+  await row.getByRole('button', { name, exact: true }).click()
+  await expect(row.getByRole('status')).toHaveText('Děkujeme za hodnocení.')
+}
+
+/** Starts another conversation in the visitor's chat. */
+async function visitorStartsNewChat(page: Page) {
+  const chat = page.getByRole('complementary', { name: 'Chat nad archivem' })
+  await chat.getByRole('button', { name: 'Nový chat' }).click()
+  await expect(chat.locator('.chat-message')).toHaveCount(0)
 }
 
 /** Asks in the debugger's box; the box empties once the answer is in. */
@@ -39,6 +57,14 @@ const questionTrace = (page: Page, question: string) =>
 /** The block "Historie pro model" of one opened question. */
 const historyBlock = (page: Page, question: string) =>
   questionTrace(page, question).locator('.call').filter({ hasText: 'Historie pro model' })
+
+/** The filter of the list of sessions by what the visitor said of them. */
+const feedbackFilter = (page: Page) => page.getByRole('group', { name: 'Hodnocení', exact: true })
+const filterChoice = (page: Page, name: string) =>
+  feedbackFilter(page).getByRole('button', { name, exact: true })
+const sessionTitles = (page: Page) => sessionRows(page).locator('.session__title')
+/** The labels of feedback on a row: of a session in the list, or of a question in an open session. */
+const feedbackLabels = (row: Locator) => row.locator('.session__feedback')
 
 async function openQuestion(page: Page, question: string) {
   const trace = questionTrace(page, question)
@@ -301,5 +327,99 @@ test.describe('Ladění chatu', () => {
     await expect(history.locator('.trace-history li')).toHaveCount(2)
     await expect(history).toContainText(FIRST)
     await expect(history).not.toContainText('selhani')
+  })
+
+  test('Otázka s hodnocením má štítek a rozhovor ukazuje počty hodnocení', async ({ page }) => {
+    await page.goto('/')
+    await visitorAsks(page, FIRST)
+    await visitorRates(page, 'Odpověď pomohla')
+    await visitorAsks(page, 'Kolik?')
+    await visitorRates(page, 'Odpověď nepomohla')
+    await visitorAsks(page, 'Co je ve 4/2025?')
+
+    await signIn(page)
+    await openAdminPage(page, 'Ladění chatu')
+    await expect(sessionRows(page)).toHaveCount(1)
+    await expect(feedbackLabels(sessionRows(page))).toHaveText(['Pomohla: 1', 'Nepomohla: 1'])
+
+    await page.getByRole('button', { name: `Otevřít rozhovor: ${FIRST}` }).click()
+    await expect(questionTraces(page)).toHaveCount(3)
+    const label = (question: string) =>
+      feedbackLabels(questionTrace(page, question).locator('summary').first())
+    await expect(label(FIRST)).toHaveText('Pomohla')
+    await expect(label('Kolik?')).toHaveText('Nepomohla')
+    await expect(label('Co je ve 4/2025?')).toHaveCount(0)
+  })
+
+  test('Filtr ukáže jen rozhovory s hodnocením, jen s kladným, nebo jen se záporným', async ({
+    page,
+  }) => {
+    const UNRATED = 'Otevírací doba zoologické zahrady'
+    await page.goto('/')
+    await visitorAsks(page, FIRST)
+    await visitorRates(page, 'Odpověď pomohla')
+    await visitorStartsNewChat(page)
+    await visitorAsks(page, 'Kolik?')
+    await visitorRates(page, 'Odpověď nepomohla')
+    await visitorStartsNewChat(page)
+    await visitorAsks(page, UNRATED)
+
+    await signIn(page)
+    await openAdminPage(page, 'Ladění chatu')
+    await expect(filterChoice(page, 'Vše')).toHaveAttribute('aria-pressed', 'true')
+    // The session asked in last is the first of the list.
+    await expect(sessionTitles(page)).toHaveText([UNRATED, 'Kolik?', FIRST])
+
+    await filterChoice(page, 'S hodnocením').click()
+    await expect(filterChoice(page, 'S hodnocením')).toHaveAttribute('aria-pressed', 'true')
+    await expect(filterChoice(page, 'Vše')).toHaveAttribute('aria-pressed', 'false')
+    await expect(sessionTitles(page)).toHaveText(['Kolik?', FIRST])
+
+    await filterChoice(page, 'Kladné').click()
+    await expect(sessionTitles(page)).toHaveText([FIRST])
+    await expect(feedbackLabels(sessionRows(page))).toHaveText(['Pomohla: 1'])
+
+    await filterChoice(page, 'Záporné').click()
+    await expect(sessionTitles(page)).toHaveText(['Kolik?'])
+    await expect(feedbackLabels(sessionRows(page))).toHaveText(['Nepomohla: 1'])
+
+    await filterChoice(page, 'Vše').click()
+    await expect(sessionTitles(page)).toHaveText([UNRATED, 'Kolik?', FIRST])
+  })
+
+  test('Rozhovor s kladným i záporným hodnocením je v obou filtrech', async ({ page }) => {
+    await page.goto('/')
+    await visitorAsks(page, FIRST)
+    await visitorRates(page, 'Odpověď pomohla')
+    await visitorAsks(page, 'Kolik?')
+    await visitorRates(page, 'Odpověď nepomohla')
+
+    await signIn(page)
+    await openAdminPage(page, 'Ladění chatu')
+    await filterChoice(page, 'Kladné').click()
+    await expect(filterChoice(page, 'Kladné')).toHaveAttribute('aria-pressed', 'true')
+    await expect(sessionTitles(page)).toHaveText([FIRST])
+    await filterChoice(page, 'Záporné').click()
+    await expect(filterChoice(page, 'Záporné')).toHaveAttribute('aria-pressed', 'true')
+    await expect(sessionTitles(page)).toHaveText([FIRST])
+  })
+
+  test('Filtr zůstane po novém načtení stránky', async ({ page }) => {
+    await page.goto('/')
+    await visitorAsks(page, FIRST)
+    await visitorRates(page, 'Odpověď pomohla')
+
+    await signIn(page)
+    await openAdminPage(page, 'Ladění chatu')
+    await filterChoice(page, 'Záporné').click()
+    await expect(page.getByText('Žádný rozhovor s tímto hodnocením.')).toBeVisible()
+    await expect(page).toHaveURL(/\/sprava\/chat\?hodnoceni=zaporne$/)
+
+    await page.reload()
+    await expect(filterChoice(page, 'Záporné')).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByText('Žádný rozhovor s tímto hodnocením.')).toBeVisible()
+
+    await filterChoice(page, 'Kladné').click()
+    await expect(sessionTitles(page)).toHaveText([FIRST])
   })
 })

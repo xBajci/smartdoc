@@ -1,5 +1,10 @@
 import { expect, test, type Page } from '@playwright/test'
-import { resetArchive, useUpChatAllowance } from '../support/database'
+import {
+  chatFeedback,
+  forgetChatTraces,
+  resetArchive,
+  useUpChatAllowance,
+} from '../support/database'
 
 // Scenarios: features/public/chat.feature
 test.describe('Chat nad archivem', () => {
@@ -17,6 +22,12 @@ test.describe('Chat nad archivem', () => {
     await input.press('Enter')
     await expect(chat(page).locator('.chat-message--pending')).toHaveCount(0)
   }
+
+  /** The two buttons under an answer that say whether it helped. */
+  const feedback = (page: Page, answer = 0) =>
+    answers(page).nth(answer).getByRole('group', { name: 'Hodnocení odpovědi' })
+  const rate = (page: Page, name: 'Odpověď pomohla' | 'Odpověď nepomohla', answer = 0) =>
+    feedback(page, answer).getByRole('button', { name, exact: true })
 
   test('Panel chatu je vedle seznamu dokumentů', async ({ page }) => {
     await expect(chat(page).getByRole('textbox', { name: 'Otázka pro archiv' })).toBeVisible()
@@ -94,6 +105,62 @@ test.describe('Chat nad archivem', () => {
     await ask(page, 'Kolik?')
     await expect(answers(page)).toHaveCount(1)
     await expect(answers(page)).not.toContainText('870 000 Kč')
+  })
+
+  test('Hodnocení je pod každou odpovědí, pod hlášením chyby není', async ({ page }) => {
+    await ask(page, 'selhani')
+    await expect(answers(page)).toContainText('Odpověď se nepodařilo získat.')
+    await expect(chat(page).getByRole('group', { name: 'Hodnocení odpovědi' })).toHaveCount(0)
+
+    await ask(page, 'Kdo vymění veřejné osvětlení?')
+    await ask(page, 'Kolik?')
+    // The message of the failure is the first of the three; it stays without buttons.
+    await expect(chat(page).getByRole('group', { name: 'Hodnocení odpovědi' })).toHaveCount(2)
+    for (const answer of [1, 2]) {
+      await expect(rate(page, 'Odpověď pomohla', answer)).toHaveAttribute('aria-pressed', 'false')
+      await expect(rate(page, 'Odpověď nepomohla', answer)).toHaveAttribute('aria-pressed', 'false')
+    }
+  })
+
+  test('Návštěvník ohodnotí odpověď a hodnocení může změnit', async ({ page }) => {
+    const question = 'Kdo vymění veřejné osvětlení?'
+    await ask(page, question)
+    await rate(page, 'Odpověď pomohla').click()
+    await expect(rate(page, 'Odpověď pomohla')).toHaveAttribute('aria-pressed', 'true')
+    await expect(feedback(page).getByRole('status')).toHaveText('Děkujeme za hodnocení.')
+    expect(await chatFeedback()).toEqual([{ question, helpful: true }])
+
+    await rate(page, 'Odpověď nepomohla').click()
+    await expect(rate(page, 'Odpověď nepomohla')).toHaveAttribute('aria-pressed', 'true')
+    await expect(rate(page, 'Odpověď pomohla')).toHaveAttribute('aria-pressed', 'false')
+    expect(await chatFeedback()).toEqual([{ question, helpful: false }])
+  })
+
+  test('Každá odpověď má své hodnocení', async ({ page }) => {
+    await ask(page, 'Kdo vymění veřejné osvětlení?')
+    await ask(page, 'Kolik?')
+    await rate(page, 'Odpověď pomohla', 0).click()
+    await expect(rate(page, 'Odpověď pomohla', 0)).toHaveAttribute('aria-pressed', 'true')
+    await rate(page, 'Odpověď nepomohla', 1).click()
+    await expect(rate(page, 'Odpověď nepomohla', 1)).toHaveAttribute('aria-pressed', 'true')
+
+    await expect(rate(page, 'Odpověď nepomohla', 0)).toHaveAttribute('aria-pressed', 'false')
+    await expect(rate(page, 'Odpověď pomohla', 1)).toHaveAttribute('aria-pressed', 'false')
+    expect(await chatFeedback()).toEqual([
+      { question: 'Kdo vymění veřejné osvětlení?', helpful: true },
+      { question: 'Kolik?', helpful: false },
+    ])
+  })
+
+  test('Hodnocení odpovědi, jejíž záznam byl smazán, se neuloží', async ({ page }) => {
+    await ask(page, 'Kdo vymění veřejné osvětlení?')
+    await forgetChatTraces()
+
+    await rate(page, 'Odpověď pomohla').click()
+    await expect(feedback(page).getByRole('status')).toHaveText('Hodnocení se nepodařilo uložit.')
+    await expect(rate(page, 'Odpověď pomohla')).toHaveAttribute('aria-pressed', 'false')
+    await expect(rate(page, 'Odpověď nepomohla')).toHaveAttribute('aria-pressed', 'false')
+    expect(await chatFeedback()).toEqual([])
   })
 
   test('Po vyčerpání denního počtu otázek chat otázku nepřijme', async ({ page }) => {

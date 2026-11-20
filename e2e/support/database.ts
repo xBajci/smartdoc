@@ -1,3 +1,4 @@
+import { asc, isNotNull } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import pg from 'pg'
 import { resetWithDemo } from '../../src/db/demo'
@@ -109,6 +110,17 @@ export async function chatSessionIds(): Promise<string[]> {
 /** Removes every chat question, so every session id a browser still holds is unknown. */
 export async function forgetChatTraces() {
   await withDatabase((database) => database.delete(schema.chatTraces))
+}
+
+/** What visitors said of the answers: the rated questions, oldest first. */
+export async function chatFeedback(): Promise<{ question: string; helpful: boolean | null }[]> {
+  return withDatabase((database) =>
+    database
+      .select({ question: schema.chatTraces.question, helpful: schema.chatTraces.helpful })
+      .from(schema.chatTraces)
+      .where(isNotNull(schema.chatTraces.helpful))
+      .orderBy(asc(schema.chatTraces.createdAt)),
+  )
 }
 
 /** Fills the day's allowance of chat questions, as if other visitors had asked them. */

@@ -154,6 +154,13 @@ export const cs = {
     questionLabel: 'Otázka pro archiv',
     send: 'Zeptat se',
     resize: 'Šířka chatu',
+    feedback: {
+      label: 'Hodnocení odpovědi',
+      yes: 'Odpověď pomohla',
+      no: 'Odpověď nepomohla',
+      thanks: 'Děkujeme za hodnocení.',
+      failed: 'Hodnocení se nepodařilo uložit.',
+    },
   },
 
   status: {
@@ -420,6 +427,18 @@ export const cs = {
     copyId: 'Kopírovat id',
     copied: 'Zkopírováno',
     sessionMissing: 'Rozhovor se nepodařilo načíst.',
+    feedbackFilter: 'Hodnocení',
+    feedbackFilters: {
+      all: 'Vše',
+      rated: 'S hodnocením',
+      helpful: 'Kladné',
+      unhelpful: 'Záporné',
+    },
+    feedbackEmpty: 'Žádný rozhovor s tímto hodnocením.',
+    feedbackHelpful: 'Pomohla',
+    feedbackUnhelpful: 'Nepomohla',
+    feedbackHelpfulCount: 'Pomohla: {count}',
+    feedbackUnhelpfulCount: 'Nepomohla: {count}',
     history: 'Historie pro model',
     noHistory: 'Model nedostal žádnou historii: první otázka rozhovoru.',
     historyVisitor: 'Návštěvník',

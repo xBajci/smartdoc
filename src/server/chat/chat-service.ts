@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import { and, asc, count, desc, eq, gt, isNotNull, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gt, isNotNull, isNull, ne, sql, type SQL } from 'drizzle-orm'
 import type {
   ChatAnswer,
+  ChatFeedbackFilter,
   ChatPassage,
   ChatQuestion,
   ChatSessionSummary,
@@ -267,6 +268,32 @@ export async function askArchive(input: ChatQuestion, asker: Asker): Promise<Cha
   return { ok: true, text: resolved.text, sources: resolved.sources, traceId: id, sessionId }
 }
 
+/**
+ * Stores what the visitor said of one answer: whether they found in it what
+ * they were looking for. Saying it again replaces the earlier word. Only a
+ * question that got an answer can be rated; `false` says nothing was stored.
+ */
+export async function rateChatAnswer(traceId: string, helpful: boolean): Promise<boolean> {
+  const rated = await getDatabase()
+    .update(chatTraces)
+    .set({ helpful, ratedAt: new Date() })
+    .where(and(eq(chatTraces.id, traceId), isNull(chatTraces.error), ne(chatTraces.answer, '')))
+    .returning({ id: chatTraces.id })
+  return rated.length > 0
+}
+
+/** How many questions of a session carry the given word of the visitor. */
+const answersRated = (helpful: boolean) =>
+  sql<number>`(count(*) filter (where ${chatTraces.helpful} = ${helpful}))::int`
+
+/** The sessions a filter of the debugger lets through: those with at least one such answer. */
+const FEEDBACK_FILTERS: Record<ChatFeedbackFilter, SQL | undefined> = {
+  all: undefined,
+  rated: sql`count(${chatTraces.helpful}) > 0`,
+  helpful: sql`bool_or(${chatTraces.helpful})`,
+  unhelpful: sql`bool_or(not ${chatTraces.helpful})`,
+}
+
 const summaryColumns = {
   id: chatTraces.id,
   createdAt: chatTraces.createdAt,
@@ -275,6 +302,7 @@ const summaryColumns = {
   steps: chatTraces.steps,
   durationMs: chatTraces.durationMs,
   costUsd: chatTraces.costUsd,
+  helpful: chatTraces.helpful,
 }
 
 function toSummary(row: {
@@ -285,6 +313,7 @@ function toSummary(row: {
   steps: ChatTraceStep[]
   durationMs: number
   costUsd: number | null
+  helpful: boolean | null
 }): ChatTraceSummary {
   return {
     id: row.id,
@@ -294,11 +323,17 @@ function toSummary(row: {
     searches: row.steps.filter((step) => step.kind === 'search').length,
     durationMs: row.durationMs,
     costUsd: row.costUsd,
+    helpful: row.helpful,
   }
 }
 
-/** The sessions with the most recent questions, newest activity first. */
-export async function listChatSessions(): Promise<ChatSessionSummary[]> {
+/**
+ * The sessions with the most recent questions, newest activity first. The
+ * filter chooses before the count is cut, so it reaches older sessions too.
+ */
+export async function listChatSessions(
+  filter: ChatFeedbackFilter = 'all',
+): Promise<ChatSessionSummary[]> {
   // Decoded like the column itself; the driver would hand a bare aggregate over as text.
   const lastAt = sql`max(${chatTraces.createdAt})`.mapWith(chatTraces.createdAt)
   const rows = await getDatabase()
@@ -311,9 +346,12 @@ export async function listChatSessions(): Promise<ChatSessionSummary[]> {
       // The sum of nothing but unknown prices is null, like the price of one such question.
       costUsd: sql<number | null>`sum(${chatTraces.costUsd})`,
       failed: sql<boolean>`bool_or(${chatTraces.error} is not null)`,
+      helpfulAnswers: answersRated(true),
+      unhelpfulAnswers: answersRated(false),
     })
     .from(chatTraces)
     .groupBy(chatTraces.sessionId)
+    .having(FEEDBACK_FILTERS[filter])
     .orderBy(desc(lastAt))
     .limit(RECENT_SESSIONS)
   return rows.map((row) => ({ ...row, lastAt: row.lastAt.toISOString() }))

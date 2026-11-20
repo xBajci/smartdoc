@@ -249,6 +249,10 @@ export const chatTraces = pgTable(
     costUsd: doublePrecision('cost_usd'),
     /** Who asked, as a hash; only for the hourly limit. `null` for the administrator. */
     askerHash: text('asker_hash'),
+    /** Whether the visitor found in the answer what they were looking for; `null` until they say. */
+    helpful: boolean('helpful'),
+    /** When the visitor last said it; they may change their mind. */
+    ratedAt: timestamp('rated_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

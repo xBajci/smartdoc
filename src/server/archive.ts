@@ -1,10 +1,11 @@
 import { createServerFn } from '@tanstack/react-start'
 import { calendarDay, libraryOrder, normalizeLibrarySearch, positiveInteger } from '~/archive/query'
-import { MAX_CHAT_DOCUMENTS } from '~/archive/types'
+import { CHAT_FEEDBACK_FILTERS, MAX_CHAT_DOCUMENTS } from '~/archive/types'
 import type {
   ArchiveDocument,
   ArchiveSnapshot,
   ChatAnswer,
+  ChatFeedbackFilter,
   ChatQuestion,
   ChatScope,
   ChatSessionSummary,
@@ -20,7 +21,13 @@ import type {
   UsageReport,
 } from '~/archive/types'
 import * as service from './archive-service'
-import { askArchive, findChatSession, findChatTrace, listChatSessions } from './chat/chat-service'
+import {
+  askArchive,
+  findChatSession,
+  findChatTrace,
+  listChatSessions,
+  rateChatAnswer,
+} from './chat/chat-service'
 import { MAX_QUESTION_CHARACTERS } from './chat/settings'
 import { storageMode } from './config'
 import { documentDebug } from './debug-service'
@@ -133,10 +140,29 @@ export const askArchiveFn = createServerFn({ method: 'POST' })
     askArchive(data, { admin: isAdmin(), hash: clientKey() }),
   )
 
-/** Recent chat sessions for the debugger. `null` for a visitor. */
-export const getChatSessionsFn = createServerFn({ method: 'GET' }).handler(
-  async (): Promise<ChatSessionSummary[] | null> => (isAdmin() ? listChatSessions() : null),
-)
+/**
+ * What a visitor says of one answer: whether they found in it what they were
+ * looking for. Open to visitors; the id of the answer's trace is the right to
+ * say it, and only the one who asked was given that id.
+ */
+export const rateChatFn = createServerFn({ method: 'POST' })
+  .validator((data: { traceId: string; helpful: boolean }) => {
+    if (typeof data.helpful !== 'boolean') throw new Error('Invalid input.')
+    return { traceId: matching(data.traceId, UUID), helpful: data.helpful }
+  })
+  .handler(async ({ data }): Promise<{ ok: boolean }> => ({
+    ok: await rateChatAnswer(data.traceId, data.helpful),
+  }))
+
+/** Recent chat sessions for the debugger, all or by their feedback. `null` for a visitor. */
+export const getChatSessionsFn = createServerFn({ method: 'GET' })
+  .validator((data: { filter?: ChatFeedbackFilter } | undefined) => ({
+    // A filter nobody knows lists everything.
+    filter: CHAT_FEEDBACK_FILTERS.find((known) => known === data?.filter) ?? 'all',
+  }))
+  .handler(async ({ data }): Promise<ChatSessionSummary[] | null> =>
+    isAdmin() ? listChatSessions(data.filter) : null,
+  )
 
 /** The questions of one session, oldest first. */
 export const getChatSessionFn = createServerFn({ method: 'GET' })

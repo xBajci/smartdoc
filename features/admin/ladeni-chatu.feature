@@ -2,6 +2,7 @@ Feature: Ladění chatu
   Správce vidí otázky z chatu po rozhovorech. U každé otázky vidí celý postup: historii, kterou
   model dostal, volání modelu, hledání v obou větvích, váhy větví, skóre rerankeru, úryvky pro
   model a konečnou odpověď. Může položit zkušební otázku, a to i do otevřeného rozhovoru.
+  Návštěvník může každou odpověď ohodnotit. Správce hodnocení vidí u otázky a rozhovory podle něj filtruje.
 
   Scenario: Bez přihlášení není postup otázek vidět
     When nepřihlášený návštěvník otevře stránku ladění chatu
@@ -74,3 +75,47 @@ Feature: Ladění chatu
     When správce otevře rozhovor
     Then rozhovor má 3 otázky a je označený chybou
     And historie pro model u otázky "Kolik?" má 2 zprávy a "selhani" v ní není
+
+  Scenario: Otázka s hodnocením má štítek a rozhovor ukazuje počty hodnocení
+    Given návštěvník se v chatu zeptal "Kdo vymění veřejné osvětlení?" a odpověď ohodnotil "Odpověď pomohla"
+    And potom se zeptal "Kolik?" a odpověď ohodnotil "Odpověď nepomohla"
+    And potom se zeptal "Co je ve 4/2025?" a odpověď neohodnotil
+    When správce otevře ladění chatu
+    Then rozhovor má štítky "Pomohla: 1" a "Nepomohla: 1"
+    When rozhovor otevře
+    Then otázka "Kdo vymění veřejné osvětlení?" má štítek "Pomohla"
+    And otázka "Kolik?" má štítek "Nepomohla"
+    And otázka "Co je ve 4/2025?" žádný štítek hodnocení nemá
+
+  Scenario: Filtr ukáže jen rozhovory s hodnocením, jen s kladným, nebo jen se záporným
+    Given v rozhovoru "Kdo vymění veřejné osvětlení?" je odpověď ohodnocená "Odpověď pomohla"
+    And v rozhovoru "Kolik?" je odpověď ohodnocená "Odpověď nepomohla"
+    And v rozhovoru "Otevírací doba zoologické zahrady" žádné hodnocení není
+    When správce otevře ladění chatu
+    Then filtr "Hodnocení" má zvoleno "Vše" a seznam má 3 rozhovory
+    When zvolí "S hodnocením"
+    Then seznam má rozhovory "Kolik?" a "Kdo vymění veřejné osvětlení?"
+    When zvolí "Kladné"
+    Then seznam má jen rozhovor "Kdo vymění veřejné osvětlení?"
+    When zvolí "Záporné"
+    Then seznam má jen rozhovor "Kolik?"
+    When zvolí "Vše"
+    Then seznam má 3 rozhovory
+
+  Scenario: Rozhovor s kladným i záporným hodnocením je v obou filtrech
+    Given návštěvník se v chatu zeptal "Kdo vymění veřejné osvětlení?" a odpověď ohodnotil "Odpověď pomohla"
+    And potom se zeptal "Kolik?" a odpověď ohodnotil "Odpověď nepomohla"
+    When správce v ladění chatu zvolí filtr "Kladné"
+    Then seznam má rozhovor "Kdo vymění veřejné osvětlení?"
+    When zvolí "Záporné"
+    Then seznam má rozhovor "Kdo vymění veřejné osvětlení?"
+
+  Scenario: Filtr zůstane po novém načtení stránky
+    Given v rozhovoru "Kdo vymění veřejné osvětlení?" je odpověď ohodnocená "Odpověď pomohla"
+    When správce v ladění chatu zvolí filtr "Záporné"
+    Then vidí "Žádný rozhovor s tímto hodnocením."
+    And adresa stránky končí "?hodnoceni=zaporne"
+    When stránku načte znovu
+    Then filtr "Hodnocení" má zvoleno "Záporné" a vidí "Žádný rozhovor s tímto hodnocením."
+    When zvolí "Kladné"
+    Then seznam má jen rozhovor "Kdo vymění veřejné osvětlení?"

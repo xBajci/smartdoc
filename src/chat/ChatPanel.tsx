@@ -4,7 +4,7 @@ import type { ArchiveDocument } from '~/archive/types'
 import { FileBadge } from '~/components/FileBadge'
 import { Icon } from '~/components/Icon'
 import { cs, fill } from '~/copy/cs'
-import { askArchiveFn } from '~/server/archive'
+import { askArchiveFn, rateChatFn } from '~/server/archive'
 import type { ChatMessage, ChatSource } from './types'
 
 export type ChosenDocument = Pick<ArchiveDocument, 'id' | 'title'>
@@ -136,7 +136,7 @@ export function ChatPanel({
           if (answer.ok) sessionId.current = answer.sessionId
           settle(
             answer.ok
-              ? { text: answer.text, sources: answer.sources }
+              ? { text: answer.text, sources: answer.sources, traceId: answer.traceId }
               : { text: cs.chat.problems[answer.problem], failed: true },
           )
         },
@@ -145,13 +145,29 @@ export function ChatPanel({
       .finally(() => setWaiting(false))
   }
 
+  // What the visitor says of one answer: whether they found in it what they
+  // were looking for. Saying the other thing replaces the first.
+  function rate(traceId: string, helpful: boolean) {
+    const mark = (change: Partial<ChatMessage>) =>
+      setMessages((current) =>
+        // By the trace, not by the message: "Nový chat" counts the messages from one again.
+        current.map((message) =>
+          message.traceId === traceId ? { ...message, ...change } : message,
+        ),
+      )
+    mark({ rating: 'storing' })
+    rateChatFn({ data: { traceId, helpful } }).then(
+      (result) => mark(result.ok ? { helpful, rating: 'thanked' } : { rating: 'failed' }),
+      () => mark({ rating: 'failed' }),
+    )
+  }
+
   function submit(event: FormEvent) {
     event.preventDefault()
     ask(question)
   }
 
   const started = messages.length > 0
-
   const composer = (
     <form
       className={started ? 'chat-composer chat-composer--docked' : 'chat-composer'}
@@ -279,6 +295,38 @@ export function ChatPanel({
                   </span>
                 </span>
                 <p className="chat-message__text">{withReferences(message.text)}</p>
+                {/* Right under the answer, and quiet on purpose: two small buttons nobody has to press. */}
+                {message.traceId === undefined ? null : (
+                  <div className="chat-feedback" role="group" aria-label={cs.chat.feedback.label}>
+                    {([true, false] as const).map((helpful) => {
+                      const traceId = message.traceId
+                      const label = helpful ? cs.chat.feedback.yes : cs.chat.feedback.no
+                      return traceId === undefined ? null : (
+                        <button
+                          key={String(helpful)}
+                          type="button"
+                          className="chat-feedback__answer"
+                          aria-label={label}
+                          title={label}
+                          aria-pressed={message.helpful === helpful}
+                          disabled={message.rating === 'storing'}
+                          onClick={() => {
+                            if (message.helpful !== helpful) rate(traceId, helpful)
+                          }}
+                        >
+                          <Icon name={helpful ? 'thumbUp' : 'thumbDown'} size={16} />
+                        </button>
+                      )
+                    })}
+                    <span role="status">
+                      {message.rating === 'thanked'
+                        ? cs.chat.feedback.thanks
+                        : message.rating === 'failed'
+                          ? cs.chat.feedback.failed
+                          : null}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {sources.length === 0 ? null : (

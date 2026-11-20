@@ -2,6 +2,7 @@ import { createFileRoute, useRouter } from '@tanstack/react-router'
 import { useState, type FormEvent } from 'react'
 import { formatUsd } from '~/archive/format'
 import type {
+  ChatFeedbackFilter,
   ChatHit,
   ChatSessionSummary,
   ChatTrace,
@@ -12,8 +13,27 @@ import { Icon } from '~/components/Icon'
 import { cs, fill } from '~/copy/cs'
 import { askArchiveFn, getChatSessionFn, getChatSessionsFn, getChatTraceFn } from '~/server/archive'
 
+/** The filters of the list as the address names them; the list of all sessions has no name. */
+const FILTER_NAMES: Readonly<Record<string, ChatFeedbackFilter>> = {
+  's-hodnocenim': 'rated',
+  kladne: 'helpful',
+  zaporne: 'unhelpful',
+}
+const FILTERS: readonly { filter: ChatFeedbackFilter; hodnoceni?: string }[] = [
+  { filter: 'all' },
+  ...Object.entries(FILTER_NAMES).map(([hodnoceni, filter]) => ({ filter, hodnoceni })),
+]
+
 export const Route = createFileRoute('/sprava/chat')({
-  loader: () => getChatSessionsFn(),
+  // `hodnoceni` lists only the sessions with that feedback, so a reload keeps the filter.
+  validateSearch: (search: Record<string, unknown>): { hodnoceni?: string } =>
+    typeof search.hodnoceni === 'string' && Object.hasOwn(FILTER_NAMES, search.hodnoceni)
+      ? { hodnoceni: search.hodnoceni }
+      : {},
+  loaderDeps: ({ search: { hodnoceni } }) => ({
+    filter: (hodnoceni === undefined ? undefined : FILTER_NAMES[hodnoceni]) ?? 'all',
+  }),
+  loader: ({ deps }) => getChatSessionsFn({ data: { filter: deps.filter } }),
   component: ChatDebugger,
 })
 
@@ -401,6 +421,7 @@ function Trace({ summary, open }: Readonly<{ summary: ChatTraceSummary; open: bo
           <span>{dateTime.format(new Date(summary.at))}</span>
           <span>{fill(cs.chatDebug.searches, { count: summary.searches })}</span>
           <span>{took(summary.durationMs)}</span>
+          {summary.helpful === null ? null : <FeedbackLabel helpful={summary.helpful} />}
           {summary.failed ? (
             <span className="status status--failed">
               <Icon name="alert" size={15} />
@@ -421,6 +442,22 @@ function Trace({ summary, open }: Readonly<{ summary: ChatTraceSummary; open: bo
   )
 }
 
+/**
+ * What the visitor said of an answer, as a label. With a count it stands at a
+ * session and says how many of its answers got that word.
+ */
+function FeedbackLabel({ helpful, count }: Readonly<{ helpful: boolean; count?: number }>) {
+  const label = helpful ? cs.chatDebug.feedbackHelpful : cs.chatDebug.feedbackUnhelpful
+  const counted = helpful ? cs.chatDebug.feedbackHelpfulCount : cs.chatDebug.feedbackUnhelpfulCount
+  return (
+    <span
+      className={`status session__feedback session__feedback--${helpful ? 'helpful' : 'unhelpful'}`}
+    >
+      {count === undefined ? label : fill(counted, { count })}
+    </span>
+  )
+}
+
 /** One conversation in the list; a click opens it. */
 function SessionRow({
   session,
@@ -438,6 +475,12 @@ function SessionRow({
         <span>{dateTime.format(new Date(session.lastAt))}</span>
         <span>{fill(cs.chatDebug.questions, { count: session.questions })}</span>
         <span>{took(session.durationMs)}</span>
+        {session.helpfulAnswers === 0 ? null : (
+          <FeedbackLabel helpful count={session.helpfulAnswers} />
+        )}
+        {session.unhelpfulAnswers === 0 ? null : (
+          <FeedbackLabel helpful={false} count={session.unhelpfulAnswers} />
+        )}
         {session.failed ? (
           <span className="status status--failed">
             <Icon name="alert" size={15} />
@@ -482,6 +525,8 @@ interface OpenSession {
 
 function ChatDebugger() {
   const sessions = Route.useLoaderData()
+  const { filter } = Route.useLoaderDeps()
+  const navigate = Route.useNavigate()
   const router = useRouter()
   const [question, setQuestion] = useState('')
   const [asking, setAsking] = useState(false)
@@ -593,18 +638,38 @@ function ChatDebugger() {
             </ul>
           )}
         </section>
-      ) : sessions.length === 0 ? (
-        <p className="notice">{cs.chatDebug.empty}</p>
       ) : (
-        <ul className="sessions">
-          {sessions.map((summary) => (
-            <SessionRow
-              key={summary.sessionId}
-              session={summary}
-              onOpen={(id) => void openSession(id)}
-            />
-          ))}
-        </ul>
+        <>
+          <div className="session-filter" role="group" aria-label={cs.chatDebug.feedbackFilter}>
+            <span aria-hidden="true">{cs.chatDebug.feedbackFilter}:</span>
+            {FILTERS.map((choice) => (
+              <button
+                key={choice.filter}
+                type="button"
+                className="cat-pill"
+                aria-pressed={choice.filter === filter}
+                onClick={() => void navigate({ search: { hodnoceni: choice.hodnoceni } })}
+              >
+                {cs.chatDebug.feedbackFilters[choice.filter]}
+              </button>
+            ))}
+          </div>
+          {sessions.length === 0 ? (
+            <p className="notice">
+              {filter === 'all' ? cs.chatDebug.empty : cs.chatDebug.feedbackEmpty}
+            </p>
+          ) : (
+            <ul className="sessions">
+              {sessions.map((summary) => (
+                <SessionRow
+                  key={summary.sessionId}
+                  session={summary}
+                  onOpen={(id) => void openSession(id)}
+                />
+              ))}
+            </ul>
+          )}
+        </>
       )}
     </section>
   )

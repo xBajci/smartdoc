@@ -472,6 +472,8 @@ export interface ChatTraceSummary {
   searches: number
   durationMs: number
   costUsd: number | null
+  /** Whether the visitor found in the answer what they were looking for; `null` when they did not say. */
+  helpful: boolean | null
 }
 
 export interface ChatTrace extends ChatTraceSummary {
@@ -500,4 +502,12 @@ export interface ChatSessionSummary {
   costUsd: number | null
   /** Whether any question of the session got no answer. */
   failed: boolean
+  /** How many answers of the session the visitor said helped. */
+  helpfulAnswers: number
+  /** How many answers of the session the visitor said did not help. */
+  unhelpfulAnswers: number
 }
+
+/** Which sessions the debugger lists, by what the visitor said of their answers. */
+export const CHAT_FEEDBACK_FILTERS = ['all', 'rated', 'helpful', 'unhelpful'] as const
+export type ChatFeedbackFilter = (typeof CHAT_FEEDBACK_FILTERS)[number]

@@ -3618,6 +3618,16 @@ a.icon-button {
   font-size: 0.875em;
 }
 
+.session-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 0 0 12px;
+  color: var(--ink-soft);
+  font-size: 0.875rem;
+}
+
 .trace-history {
   display: grid;
   gap: 6px;
@@ -4168,6 +4178,46 @@ a.icon-button {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
   margin: 0 30px 22px;
+}
+
+/* Right under an answer, in the column of its text: whether it helped. It is
+   quiet: two small buttons that nobody has to press. */
+.chat-feedback {
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: -8px;
+  color: var(--ink-soft);
+  font-size: 0.8125rem;
+}
+
+.chat-feedback [role='status'] {
+  margin-left: 6px;
+}
+
+.chat-feedback__answer {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.chat-feedback__answer:hover:not(:disabled),
+.chat-feedback__answer[aria-pressed='true'] {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.chat-feedback__answer:disabled {
+  cursor: default;
+  opacity: 0.6;
 }
 
 .chat-suggestion {
@@ -5519,6 +5569,18 @@ body {
   border-radius: 999px;
   font-size: 0.8125rem;
   font-weight: 500;
+}
+
+.session__feedback--helpful {
+  border-color: #b9e0c0;
+  background: #e7f6e9;
+  color: #1d6b34;
+}
+
+.session__feedback--unhelpful {
+  border-color: #f3c1bc;
+  background: #fdebe9;
+  color: #b3261e;
 }
 
 .skill,

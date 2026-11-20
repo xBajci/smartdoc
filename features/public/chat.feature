@@ -46,6 +46,35 @@ Feature: Chat nad archivem
     When se zeptá "Kolik?"
     Then odpověď na předchozí konverzaci nenavazuje
 
+  Scenario: Hodnocení je pod každou odpovědí, pod hlášením chyby není
+    When odpověď na otázku selže
+    Then pod hlášením chyby není žádné hodnocení
+    When návštěvník se zeptá "Kdo vymění veřejné osvětlení?" a potom "Kolik?"
+    Then pod každou z obou odpovědí jsou tlačítka "Odpověď pomohla" a "Odpověď nepomohla"
+    And žádné z nich není označené jako zvolené
+
+  Scenario: Návštěvník ohodnotí odpověď a hodnocení může změnit
+    Given návštěvník se zeptal "Kdo vymění veřejné osvětlení?"
+    When pod odpovědí zvolí "Odpověď pomohla"
+    Then tlačítko "Odpověď pomohla" je označené jako zvolené a vidí "Děkujeme za hodnocení."
+    And otázka "Kdo vymění veřejné osvětlení?" má uložené kladné hodnocení
+    When zvolí "Odpověď nepomohla"
+    Then jako zvolené je označené jen tlačítko "Odpověď nepomohla"
+    And otázka "Kdo vymění veřejné osvětlení?" má uložené záporné hodnocení
+
+  Scenario: Každá odpověď má své hodnocení
+    Given návštěvník se zeptal "Kdo vymění veřejné osvětlení?" a potom "Kolik?"
+    When první odpověď ohodnotí "Odpověď pomohla" a druhou "Odpověď nepomohla"
+    Then u první odpovědi je zvolené "Odpověď pomohla" a u druhé "Odpověď nepomohla"
+    And otázka "Kdo vymění veřejné osvětlení?" má uložené kladné hodnocení a otázka "Kolik?" záporné
+
+  Scenario: Hodnocení odpovědi, jejíž záznam byl smazán, se neuloží
+    Given návštěvník se zeptal "Kdo vymění veřejné osvětlení?"
+    And záznamy chatu byly smazány
+    When pod odpovědí zvolí "Odpověď pomohla"
+    Then vidí "Hodnocení se nepodařilo uložit." a žádné tlačítko není označené jako zvolené
+    And žádné hodnocení uložené není
+
   Scenario: Po vyčerpání denního počtu otázek chat otázku nepřijme
     Given návštěvníci dnes položili tolik otázek, kolik chat za den dovolí
     When návštěvník se zeptá "Kdo vymění veřejné osvětlení?"
