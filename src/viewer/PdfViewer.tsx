@@ -1,4 +1,4 @@
-import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist'
+import type { PDFDocumentProxy, RenderTask, TextLayer } from 'pdfjs-dist'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Icon } from '~/components/Icon'
 import { cs, fill } from '~/copy/cs'
@@ -229,6 +229,7 @@ interface PdfPageProps {
 function PdfPage({ pdf, number, scale, fallbackSize, root }: Readonly<PdfPageProps>) {
   const holder = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
+  const text = useRef<HTMLDivElement>(null)
   const [near, setNear] = useState(false)
   const [size, setSize] = useState(fallbackSize)
 
@@ -249,18 +250,27 @@ function PdfPage({ pdf, number, scale, fallbackSize, root }: Readonly<PdfPagePro
     if (!near) return
     let cancelled = false
     let task: RenderTask | undefined
+    let layer: TextLayer | undefined
     void (async () => {
       try {
-        const page = await pdf.getPage(number)
+        const [pdfjs, page] = await Promise.all([loadPdfJs(), pdf.getPage(number)])
         const target = canvas.current
-        if (cancelled || target === null) return
+        const words = text.current
+        if (cancelled || target === null || words === null) return
         const base = page.getViewport({ scale: 1 })
         setSize({ width: base.width, height: base.height })
         const viewport = page.getViewport({ scale: scale * window.devicePixelRatio })
         target.width = Math.floor(viewport.width)
         target.height = Math.floor(viewport.height)
         task = page.render({ canvas: target, viewport })
-        await task.promise
+        // The canvas is a picture. The words go over it, unseen, so they can be selected and copied.
+        words.replaceChildren()
+        layer = new pdfjs.TextLayer({
+          textContentSource: page.streamTextContent(),
+          container: words,
+          viewport: page.getViewport({ scale }),
+        })
+        await Promise.all([task.promise, layer.render()])
       } catch {
         // A cancelled render rejects; a page that fails to draw stays blank
         // and the download button remains available.
@@ -269,6 +279,7 @@ function PdfPage({ pdf, number, scale, fallbackSize, root }: Readonly<PdfPagePro
     return () => {
       cancelled = true
       task?.cancel()
+      layer?.cancel()
     }
   }, [near, pdf, number, scale])
 
@@ -277,9 +288,16 @@ function PdfPage({ pdf, number, scale, fallbackSize, root }: Readonly<PdfPagePro
       ref={holder}
       className="pdf-page"
       data-page={number}
-      style={{ width: size.width * scale, height: size.height * scale }}
+      style={
+        {
+          width: size.width * scale,
+          height: size.height * scale,
+          '--total-scale-factor': scale,
+        } as React.CSSProperties
+      }
     >
       <canvas ref={canvas} aria-label={fill(cs.viewer.pageCanvas, { page: number })} role="img" />
+      <div ref={text} className="pdf-page__text" />
     </div>
   )
 }

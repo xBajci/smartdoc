@@ -114,7 +114,7 @@ test.describe('Nahrávání dokumentů', () => {
 
     await openLibrary(page)
     await page.locator('.document-link', { hasText: 'studie-stezky' }).click()
-    await expect(page.getByText('z 2')).toBeVisible()
+    await expect(page.locator('.page-field').getByText('z 2')).toBeVisible()
 
     const downloadPromise = page.waitForEvent('download')
     await page.getByRole('link', { name: 'Stáhnout' }).click()

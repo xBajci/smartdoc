@@ -160,7 +160,7 @@ test.describe('Správa archivu', () => {
     await signIn(page)
     await page.getByRole('button', { name: 'Zobrazit: Zpravodaj 4/2025' }).click()
     const viewer = page.getByRole('region', { name: 'Zpravodaj 4/2025' })
-    await expect(viewer.getByText('z 4')).toBeVisible()
+    await expect(viewer.locator('.page-field').getByText('z 4')).toBeVisible()
     await expect(viewer.locator('canvas').first()).toBeVisible()
     expect(context.pages()).toHaveLength(1)
 

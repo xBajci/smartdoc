@@ -10,6 +10,20 @@ Feature: Integrovaný prohlížeč dokumentů
     Then se zvětší měřítko
     And je dostupné tlačítko "Stáhnout" s originálním souborem
 
+  Scenario: Text v PDF lze označit a zkopírovat
+    When návštěvník otevře dokument "Schválený rozpočet na rok 2025"
+    And označí myší větu "Závaznými ukazateli jsou paragrafy rozpočtové skladby."
+    Then je tato věta označená
+    When ji zkopíruje
+    Then schránka obsahuje tuto větu
+
+  Scenario: Označení přes dva řádky nepřeskočí na konec strany
+    When návštěvník otevře dokument "Schválený rozpočet na rok 2025"
+    And začne označovat řádek a myš přejde do mezery pod ním
+    Then označení nesahá za následující řádek
+    When dotáhne myš na konec následujícího řádku
+    Then jsou označené právě tyto dva řádky
+
   Scenario: Adresa s číslem strany otevře tuto stranu
     When návštěvník otevře adresu dokumentu "Schválený rozpočet na rok 2025" se stranou 3
     Then prohlížeč ukazuje stranu 3 z 3
