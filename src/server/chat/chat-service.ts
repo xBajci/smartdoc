@@ -23,6 +23,7 @@ import { getDecider } from './decisions'
 import { getEmbedder } from './embedder'
 import { historyFromTraces } from './history'
 import { CHAT_FIXED } from './instructions'
+import { sendFeedback, traceQuestion, type Feedback } from './mlflow'
 import { hybridSearch } from './retrieval'
 import { chatSettings } from './settings'
 
@@ -128,26 +129,33 @@ export async function askArchive(input: ChatQuestion, asker: Asker): Promise<Cha
 
   let answer = ''
   let error: string | null = null
+  let mlflowTraceId: string | null = null
+  const answerer = getAnswerer()
   try {
-    answer = await getAnswerer()({
-      question: input.question,
-      instructions: answerInstructions.text,
-      history,
-      settings,
-      trace: (step) => steps.push(step),
-      search: (query) =>
-        hybridSearch(input.question, query, input, {
-          embed: async (texts) => {
-            const embedded = await embed(texts)
-            embeddingModel = embedded.model
-            return embedded
-          },
-          decider,
-          rerankGuidance: rerankGuidance.text,
+    answer = await traceQuestion(
+      { question: input.question, questionId: id, sessionId },
+      () =>
+        answerer({
+          question: input.question,
+          instructions: answerInstructions.text,
+          history,
           settings,
-          numberOf,
+          trace: (step) => steps.push(step),
+          search: (query) =>
+            hybridSearch(input.question, query, input, {
+              embed: async (texts) => {
+                const embedded = await embed(texts)
+                embeddingModel = embedded.model
+                return embedded
+              },
+              decider,
+              rerankGuidance: rerankGuidance.text,
+              settings,
+              numberOf,
+            }),
         }),
-    })
+      (traceId) => (mlflowTraceId = traceId),
+    )
   } catch (caught) {
     console.error(`Chat question ${id} failed:`, caught)
     error = caught instanceof Error ? caught.message : String(caught)
@@ -245,6 +253,7 @@ export async function askArchive(input: ChatQuestion, asker: Asker): Promise<Cha
     costUsd:
       priced.length === 0 ? null : priced.reduce((sum, call) => sum + (call.costUsd ?? 0), 0),
     askerHash: asker.admin ? null : asker.hash,
+    mlflowTraceId,
   })
   if (usage.length > 0) {
     await database
@@ -272,14 +281,47 @@ export async function askArchive(input: ChatQuestion, asker: Asker): Promise<Cha
  * Stores what the visitor said of one answer: whether they found in it what
  * they were looking for. Saying it again replaces the earlier word. Only a
  * question that got an answer can be rated; `false` says nothing was stored.
+ * A word that differs from the earlier one goes to MLflow too, without the
+ * visitor waiting for it.
  */
 export async function rateChatAnswer(traceId: string, helpful: boolean): Promise<boolean> {
-  const rated = await getDatabase()
+  const [rated] = await getDatabase()
     .update(chatTraces)
     .set({ helpful, ratedAt: new Date() })
     .where(and(eq(chatTraces.id, traceId), isNull(chatTraces.error), ne(chatTraces.answer, '')))
-    .returning({ id: chatTraces.id })
-  return rated.length > 0
+    .returning({
+      sessionId: chatTraces.sessionId,
+      mlflowTraceId: chatTraces.mlflowTraceId,
+      mlflowFeedbackId: chatTraces.mlflowFeedbackId,
+      // A subquery sees the row as it was before this update.
+      before: sql<
+        boolean | null
+      >`(select earlier.helpful from chat_traces earlier where earlier.id = "chat_traces"."id")`,
+    })
+  if (rated === undefined) return false
+  if (rated.mlflowTraceId !== null && rated.before !== helpful) {
+    void forwardFeedback(traceId, {
+      mlflowTraceId: rated.mlflowTraceId,
+      feedbackId: rated.mlflowFeedbackId,
+      helpful,
+      // The session stands for the visitor: MLflow sees which words came from one conversation.
+      visitor: rated.sessionId,
+    })
+  }
+  return true
+}
+
+/** Sends a word to MLflow and keeps the id it got there, so the next word updates it. */
+async function forwardFeedback(traceId: string, feedback: Feedback) {
+  const feedbackId = await sendFeedback(feedback)
+  if (feedbackId === null || feedbackId === feedback.feedbackId) return
+  await getDatabase()
+    .update(chatTraces)
+    .set({ mlflowFeedbackId: feedbackId })
+    .where(eq(chatTraces.id, traceId))
+    .catch((caught: unknown) =>
+      console.error(`MLflow feedback of ${traceId} was not kept:`, caught),
+    )
 }
 
 /** How many questions of a session carry the given word of the visitor. */

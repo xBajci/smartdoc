@@ -123,6 +123,17 @@ export async function chatFeedback(): Promise<{ question: string; helpful: boole
   )
 }
 
+/** The ids MLflow knows the chat questions by, oldest question first. */
+export async function chatMlflowTraceIds(): Promise<(string | null)[]> {
+  return withDatabase(async (database) => {
+    const rows = await database
+      .select({ id: schema.chatTraces.mlflowTraceId })
+      .from(schema.chatTraces)
+      .orderBy(asc(schema.chatTraces.createdAt))
+    return rows.map((row) => row.id)
+  })
+}
+
 /** Fills the day's allowance of chat questions, as if other visitors had asked them. */
 export async function useUpChatAllowance(questions: number) {
   await withDatabase((database) =>

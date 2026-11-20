@@ -1,4 +1,5 @@
 import { hashPassword } from '../../src/server/session-password'
+import { FAKE_MLFLOW_PORT } from './fake-mlflow'
 
 /** Password of the administrator in the test suite. */
 export const TEST_PASSWORD = 'zkusebni-heslo'
@@ -9,6 +10,10 @@ export const DATABASE_SERVER_URL = `${server}/postgres`
 export const DATABASE_NAME = 'hm_archiv_e2e'
 export const DATABASE_URL = `${server}/${DATABASE_NAME}`
 export const STORAGE_DIR = '.data/e2e-storage'
+/** Where the stand-in for MLflow listens, and what the application signs in to it with. */
+export const MLFLOW_URL = `http://127.0.0.1:${FAKE_MLFLOW_PORT}`
+export const MLFLOW_EXPERIMENT_ID = '7'
+export const MLFLOW_AUTHORIZATION = `Basic ${Buffer.from('hm-archiv:e2e-mlflow-heslo').toString('base64')}`
 /** The public address the application under test believes it has. */
 export const SITE_URL = 'https://archiv.example.cz'
 
@@ -34,6 +39,11 @@ export function serverEnvironment(port: number): Record<string, string> {
     AI_EMBEDDING_MODEL: 'fake:embedding',
     // Weights from whether the query has a digit; scores from the words a piece shares with it.
     AI_DECISION_MODEL: 'fake:decision',
+    // Traces and feedback go to the stand-in for MLflow (e2e/support/fake-mlflow.ts).
+    MLFLOW_TRACKING_URI: MLFLOW_URL,
+    MLFLOW_EXPERIMENT_ID,
+    MLFLOW_TRACKING_USERNAME: 'hm-archiv',
+    MLFLOW_TRACKING_PASSWORD: 'e2e-mlflow-heslo',
     CHAT_DAILY_LIMIT: '50',
     CHAT_HOURLY_LIMIT: '40',
     AI_PRICES:

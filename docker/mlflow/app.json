@@ -1,0 +1,110 @@
+{
+  "$schema": "https://openship.io/app.schema.json",
+  "id": "mlflow-basic-auth",
+  "name": "MLflow 3.18 with login",
+  "description": "One MLflow tracking server per app: traces, feedback and evaluations of an LLM app. Login (basic auth) is on, nobody sees anything without an account. Data in SQLite on a volume.",
+  "kind": "template",
+  "logo": "mlflow",
+  "category": "ai",
+  "framework": "docker-compose",
+  "services": [
+    {
+      "name": "mlflow",
+      "restart": "unless-stopped",
+      "exposed": true,
+      "exposedPort": 5000,
+      "build": {
+        "dockerfile": "# MLflow tracking server with its login (basic auth). The plain image lacks\n# Flask-WTF, which the login needs; the \"-full\" image has it, but is 450 MB bigger.\nFROM ghcr.io/mlflow/mlflow:v3.18.0\nRUN pip install --no-cache-dir \"mlflow[auth]==3.18.0\"\n"
+      },
+      "commandArgv": ["sh", "/opt/openship/start-mlflow.sh"],
+      "environment": {
+        "MLFLOW_PUBLIC_URL": "{{publicUrl:mlflow}}"
+      },
+      "secretEnv": ["MLFLOW_AUTH_ADMIN_PASSWORD", "MLFLOW_FLASK_SERVER_SECRET_KEY"],
+      "volumes": ["mlflow_data:/mlflow"],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health')"
+        ],
+        "interval": "15s",
+        "timeout": "5s",
+        "retries": 12,
+        "startPeriod": "60s"
+      },
+      "resources": {
+        "cpuCores": 1,
+        "memoryMb": 2560,
+        "diskMb": 4096
+      }
+    }
+  ],
+  "configFields": [
+    {
+      "service": "mlflow",
+      "key": "MLFLOW_AUTH_ADMIN_PASSWORD",
+      "label": "Administrator password (user admin)",
+      "generate": "secret",
+      "secret": true
+    },
+    {
+      "service": "mlflow",
+      "key": "MLFLOW_FLASK_SERVER_SECRET_KEY",
+      "label": "Signing key of the login forms",
+      "generate": "secret",
+      "secret": true
+    }
+  ],
+  "files": [
+    {
+      "service": "mlflow",
+      "path": "/opt/openship/start-mlflow.sh",
+      "content": "#!/bin/sh\n# Starts MLflow with its login. Everything it keeps is on the volume /mlflow:\n# runs and traces in mlflow.db, users in basic_auth.db, artifacts in artifacts/.\nset -eu\n\n# MLflow reads the administrator's password from MLFLOW_AUTH_ADMIN_PASSWORD\n# (at least 12 characters), and only when basic_auth.db is created, on the\n# first start. Later it is changed in MLflow itself, not here.\n: \"${MLFLOW_AUTH_ADMIN_PASSWORD:?MLFLOW_AUTH_ADMIN_PASSWORD is not set}\"\n: \"${MLFLOW_FLASK_SERVER_SECRET_KEY:?MLFLOW_FLASK_SERVER_SECRET_KEY is not set}\"\n\n# Nobody sees anything without being let in. A checked password is remembered\n# for a minute, so a burst of traces does not hash it on every request.\ncat > /tmp/basic_auth.ini <<'INI'\n[mlflow]\ndefault_permission = NO_PERMISSIONS\ndatabase_uri = sqlite:////mlflow/basic_auth.db\nadmin_username = admin\nauthorization_function = mlflow.server.auth:authenticate_request_basic_auth\ngrant_default_workspace_access = false\nauth_cache_ttl_seconds = 60\nINI\nexport MLFLOW_AUTH_CONFIG_PATH=/tmp/basic_auth.ini\n\n# MLflow answers only to the names it is reached by: the public domain, the\n# service name inside the Openship network, and the shared-svc-… name an app\n# connected to it gets. Anything else is refused (403).\n# Changes from a browser are taken only from the page at the public domain;\n# without it MLflow takes them from localhost only, and its own pages fail.\nhosts=\"mlflow,mlflow:5000,shared-svc-*,localhost:*,127.0.0.1:*\"\norigins=\"http://localhost:*\"\npublic_host=\"${MLFLOW_PUBLIC_URL:-}\"\npublic_host=\"${public_host#*://}\"\npublic_host=\"${public_host%%/*}\"\nif [ -n \"$public_host\" ]; then\n  hosts=\"$public_host,$hosts\"\n  origins=\"https://$public_host,$origins\"\nfi\n\nexec mlflow server \\\n  --host 0.0.0.0 --port 5000 --workers 1 \\\n  --backend-store-uri sqlite:////mlflow/mlflow.db \\\n  --default-artifact-root /mlflow/artifacts --serve-artifacts \\\n  --app-name basic-auth \\\n  --allowed-hosts \"$hosts\" \\\n  --cors-allowed-origins \"$origins\"\n"
+    }
+  ],
+  "connection": {
+    "title": "Connect to MLflow",
+    "outputs": [
+      {
+        "id": "trackingUri",
+        "label": "MLFLOW_TRACKING_URI",
+        "source": "template:http://mlflow:5000",
+        "service": "mlflow",
+        "envKey": "MLFLOW_TRACKING_URI",
+        "recommended": true
+      },
+      {
+        "id": "publicUrl",
+        "label": "MLflow address",
+        "source": "publicUrl:mlflow"
+      },
+      {
+        "id": "adminPassword",
+        "label": "Administrator password (user admin)",
+        "source": "env:mlflow:MLFLOW_AUTH_ADMIN_PASSWORD",
+        "secret": true
+      }
+    ],
+    "guide": {
+      "defaultMode": "internal",
+      "useHint": "An app sends to the internal address with its own MLflow user, never the administrator."
+    }
+  },
+  "endpoints": [
+    {
+      "service": "mlflow",
+      "port": 5000,
+      "label": "MLflow",
+      "kind": "http",
+      "defaultMode": "domain",
+      "allowedModes": ["domain", "internal"]
+    }
+  ],
+  "minResources": {
+    "cpuCores": 1,
+    "memoryMb": 2048
+  },
+  "tags": ["mlflow", "llm", "tracing", "observability"]
+}

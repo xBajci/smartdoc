@@ -253,6 +253,10 @@ export const chatTraces = pgTable(
     helpful: boolean('helpful'),
     /** When the visitor last said it; they may change their mind. */
     ratedAt: timestamp('rated_at', { withTimezone: true }),
+    /** The id of the question's trace in MLflow; `null` when MLflow was not set up. */
+    mlflowTraceId: text('mlflow_trace_id'),
+    /** The visitor's word as feedback in MLflow, so a changed word updates it; `null` until it is there. */
+    mlflowFeedbackId: text('mlflow_feedback_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

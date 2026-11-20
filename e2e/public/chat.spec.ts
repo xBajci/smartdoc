@@ -1,10 +1,13 @@
 import { expect, test, type Page } from '@playwright/test'
 import {
   chatFeedback,
+  chatMlflowTraceIds,
   forgetChatTraces,
   resetArchive,
   useUpChatAllowance,
 } from '../support/database'
+import { MLFLOW_AUTHORIZATION, MLFLOW_EXPERIMENT_ID } from '../support/environment'
+import { clearMlflowRecords, mlflowRecords } from '../support/mlflow'
 
 // Scenarios: features/public/chat.feature
 test.describe('Chat nad archivem', () => {
@@ -161,6 +164,76 @@ test.describe('Chat nad archivem', () => {
     await expect(rate(page, 'Odpověď pomohla')).toHaveAttribute('aria-pressed', 'false')
     await expect(rate(page, 'Odpověď nepomohla')).toHaveAttribute('aria-pressed', 'false')
     expect(await chatFeedback()).toEqual([])
+  })
+
+  test('Otázka a její hodnocení dorazí do MLflow', async ({ page }) => {
+    await clearMlflowRecords()
+    await ask(page, 'Kdo vymění veřejné osvětlení?')
+    const [traceId] = await chatMlflowTraceIds()
+    expect(traceId).toMatch(/^tr-[0-9a-f]{32}$/)
+    // OTLP carries the trace id as its 16 bytes, which the stand-in keeps in hex.
+    const traceBytes = traceId?.slice('tr-'.length) ?? ''
+    await expect
+      .poll(async () =>
+        (await mlflowRecords()).some(
+          (record) =>
+            record.kind === 'trace' &&
+            record.body.includes(traceBytes) &&
+            record.experimentId === MLFLOW_EXPERIMENT_ID &&
+            record.authorization === MLFLOW_AUTHORIZATION,
+        ),
+      )
+      .toBe(true)
+
+    /** What MLflow got about the visitor's word, oldest first. */
+    const feedback = async () =>
+      (await mlflowRecords())
+        .filter((record) => record.kind !== 'trace')
+        .map((record) => ({
+          kind: record.kind,
+          traceId: record.traceId,
+          feedbackId: record.feedbackId,
+          authorization: record.authorization,
+          ...(JSON.parse(record.body) as object),
+        }))
+
+    await rate(page, 'Odpověď nepomohla').click()
+    await expect(rate(page, 'Odpověď nepomohla')).toHaveAttribute('aria-pressed', 'true')
+    await expect.poll(feedback).toEqual([
+      {
+        kind: 'feedback',
+        traceId,
+        feedbackId: null,
+        authorization: MLFLOW_AUTHORIZATION,
+        assessment: {
+          trace_id: traceId,
+          assessment_name: 'helpful',
+          source: { source_type: 'HUMAN', source_id: expect.any(String) },
+          feedback: { value: false },
+        },
+      },
+    ])
+
+    // The same word again changes nothing; another word changes the one feedback.
+    await rate(page, 'Odpověď nepomohla').click()
+    await expect(rate(page, 'Odpověď pomohla')).toBeEnabled()
+    await rate(page, 'Odpověď pomohla').click()
+    await expect(rate(page, 'Odpověď pomohla')).toHaveAttribute('aria-pressed', 'true')
+    await expect.poll(async () => (await feedback()).length).toBe(2)
+    const [created, changed] = await feedback()
+    expect(changed).toEqual({
+      kind: 'feedback-update',
+      traceId,
+      feedbackId: expect.stringMatching(/^a-\d+$/),
+      authorization: MLFLOW_AUTHORIZATION,
+      assessment: {
+        assessment_id: changed?.feedbackId,
+        trace_id: traceId,
+        feedback: { value: true },
+      },
+      update_mask: 'feedback',
+    })
+    expect(created?.kind).toBe('feedback')
   })
 
   test('Po vyčerpání denního počtu otázek chat otázku nepřijme', async ({ page }) => {

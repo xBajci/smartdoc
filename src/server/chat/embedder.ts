@@ -3,6 +3,7 @@ import { embedMany } from 'ai'
 import { searchWords } from '../../archive/query'
 import { EMBEDDING_DIMENSIONS } from '../../db/schema'
 import { embeddingModel, modelName, modelSetting } from '../ai/models'
+import { chatTelemetry } from './mlflow'
 
 export interface Embedded {
   /** One vector per text, in the order of the texts. */
@@ -42,7 +43,12 @@ export const fakeEmbedder: Embedder = (texts) =>
   })
 
 const aiEmbedder: Embedder = async (texts) => {
-  const { embeddings, usage } = await embedMany({ model: embeddingModel(), values: [...texts] })
+  const { embeddings, usage } = await embedMany({
+    model: embeddingModel(),
+    values: [...texts],
+    // The vectors would fill MLflow with numbers nobody reads.
+    telemetry: { ...chatTelemetry(), recordOutputs: false },
+  })
   const wrong = embeddings.find((vector) => vector.length !== EMBEDDING_DIMENSIONS)
   if (wrong !== undefined) {
     throw new Error(

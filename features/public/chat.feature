@@ -75,6 +75,14 @@ Feature: Chat nad archivem
     Then vidí "Hodnocení se nepodařilo uložit." a žádné tlačítko není označené jako zvolené
     And žádné hodnocení uložené není
 
+  Scenario: Otázka a její hodnocení dorazí do MLflow
+    Given návštěvník se zeptal "Kdo vymění veřejné osvětlení?"
+    Then MLflow dostal záznam té otázky do experimentu chatu, přihlášený účtem chatu
+    When pod odpovědí zvolí "Odpověď nepomohla"
+    Then MLflow dostal k záznamu té otázky hodnocení „nepomohla“ od návštěvníka
+    When zvolí "Odpověď nepomohla" znovu a potom "Odpověď pomohla"
+    Then MLflow má u záznamu pořád jen jedno hodnocení, změněné na „pomohla“
+
   Scenario: Po vyčerpání denního počtu otázek chat otázku nepřijme
     Given návštěvníci dnes položili tolik otázek, kolik chat za den dovolí
     When návštěvník se zeptá "Kdo vymění veřejné osvětlení?"

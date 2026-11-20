@@ -4,6 +4,7 @@ import type { ChatPassage, ChatTraceStep, ChatTurn } from '../../archive/types'
 import { languageModel, modelName, modelSetting } from '../ai/models'
 import { costOfCall } from '../ai/prices'
 import { NOTHING_FOUND, SEARCH_TOOL } from './instructions'
+import { chatTelemetry } from './mlflow'
 import { passagesForModel, type SearchStep } from './retrieval'
 import type { ChatSettings } from './settings'
 
@@ -38,6 +39,7 @@ const aiAnswerer: Answerer = async ({
   try {
     const { text } = await generateText({
       model: languageModel('chat'),
+      telemetry: chatTelemetry(),
       instructions,
       messages: [
         ...history.map((turn) => ({
