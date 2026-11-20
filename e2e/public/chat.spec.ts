@@ -184,6 +184,19 @@ test.describe('Chat nad archivem', () => {
         ),
       )
       .toBe(true)
+    // The search is a retriever step with the pieces it found, which the judges of MLflow read.
+    const hex = (text: string) => Buffer.from(text).toString('hex')
+    await expect
+      .poll(async () =>
+        (await mlflowRecords()).some(
+          (record) =>
+            record.kind === 'trace' &&
+            record.body.includes(traceBytes) &&
+            record.body.includes(hex('RETRIEVER')) &&
+            record.body.includes(hex('page_content')),
+        ),
+      )
+      .toBe(true)
 
     /** What MLflow got about the visitor's word, oldest first. */
     const feedback = async () =>

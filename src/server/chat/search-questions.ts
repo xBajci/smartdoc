@@ -10,6 +10,10 @@ export interface SearchQuestion {
   number: number
   name: string
   question: string
+  /** The answer, checked in the text of the documents. */
+  answer: string
+  /** Why the question is hard: what the search or the chat can mistake. */
+  trap: string
   /** Empty when the archive holds no answer. */
   documents: ExpectedDocument[]
 }
@@ -30,8 +34,13 @@ function fieldsOf(section: string): Map<string, string> {
   return fields
 }
 
+/** A field as one line: the Markdown wraps long text. */
+function oneLine(text: string): string {
+  return text.replace(/\s+/g, ' ').trim()
+}
+
 function documentOf(item: string, number: number): ExpectedDocument {
-  const text = item.replace(/\s+/g, ' ').trim()
+  const text = oneLine(item)
   const found = /^(.*), s\. ([\d–-]+)$/.exec(text)
   if (found === null) throw new Error(`Question ${number}: no ", s. <page>" in "${text}".`)
   return { title: found[1] ?? '', pages: found[2] ?? '' }
@@ -54,11 +63,27 @@ export function parseSearchQuestions(markdown: string): SearchQuestion[] {
     const end = sections[index + 1]?.index ?? markdown.length
     const fields = fieldsOf(markdown.slice(match.index ?? 0, end))
     const question = fields.get('Otázka')
+    const answer = fields.get('Odpověď')
+    const trap = fields.get('Past')
     const documents = fields.get('Správné dokumenty')
-    if (question === undefined || documents === undefined) {
-      throw new Error(`Question ${number}: "Otázka" or "Správné dokumenty" is missing.`)
+    if (
+      question === undefined ||
+      answer === undefined ||
+      trap === undefined ||
+      documents === undefined
+    ) {
+      throw new Error(
+        `Question ${number}: "Otázka", "Odpověď", "Past" or "Správné dokumenty" is missing.`,
+      )
     }
-    return { number, name: match[2] ?? '', question, documents: documentsOf(documents, number) }
+    return {
+      number,
+      name: match[2] ?? '',
+      question,
+      answer: oneLine(answer),
+      trap: oneLine(trap),
+      documents: documentsOf(documents, number),
+    }
   })
 }
 

@@ -78,6 +78,7 @@ Feature: Chat nad archivem
   Scenario: Otázka a její hodnocení dorazí do MLflow
     Given návštěvník se zeptal "Kdo vymění veřejné osvětlení?"
     Then MLflow dostal záznam té otázky do experimentu chatu, přihlášený účtem chatu
+    And záznam ukazuje i hledání s úryvky, které našlo
     When pod odpovědí zvolí "Odpověď nepomohla"
     Then MLflow dostal k záznamu té otázky hodnocení „nepomohla“ od návštěvníka
     When zvolí "Odpověď nepomohla" znovu a potom "Odpověď pomohla"

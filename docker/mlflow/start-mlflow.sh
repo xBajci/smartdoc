@@ -8,6 +8,10 @@ set -eu
 # first start. Later it is changed in MLflow itself, not here.
 : "${MLFLOW_AUTH_ADMIN_PASSWORD:?MLFLOW_AUTH_ADMIN_PASSWORD is not set}"
 : "${MLFLOW_FLASK_SERVER_SECRET_KEY:?MLFLOW_FLASK_SERVER_SECRET_KEY is not set}"
+# API keys stored in MLflow for its judges are encrypted with this passphrase.
+# Without it MLflow uses a default one that every installation shares. A
+# changed passphrase makes the stored keys unreadable, so it is set only once.
+: "${MLFLOW_CRYPTO_KEK_PASSPHRASE:?MLFLOW_CRYPTO_KEK_PASSPHRASE is not set}"
 
 # Nobody sees anything without being let in. A checked password is remembered
 # for a minute, so a burst of traces does not hash it on every request.

@@ -23,9 +23,9 @@ import { getDecider } from './decisions'
 import { getEmbedder } from './embedder'
 import { historyFromTraces } from './history'
 import { CHAT_FIXED } from './instructions'
-import { sendFeedback, traceQuestion, type Feedback } from './mlflow'
-import { hybridSearch } from './retrieval'
-import { chatSettings } from './settings'
+import { sendFeedback, traceQuestion, traceSearch, type Feedback } from './mlflow'
+import { hybridSearch, type SearchScope } from './retrieval'
+import { chatSettings, type ChatSettings } from './settings'
 
 const HOUR_MS = 3_600_000
 const RECENT_SESSIONS = 100
@@ -94,21 +94,37 @@ async function joinSession(
   return { sessionId, history: historyFromTraces(earlier, historyMessages) }
 }
 
-/**
- * Answers one question and leaves a trace of how the answer came to be. The
- * trace and the cost are written whether the answer was made or not.
- */
-export async function askArchive(input: ChatQuestion, asker: Asker): Promise<ChatAnswer> {
-  const limit = await overLimit(asker)
-  if (limit !== null) return { ok: false, problem: limit }
-  if ((missingKey('chat') ?? missingKey('embedding')) !== null) {
-    return { ok: false, problem: 'not-set-up' }
-  }
+export interface AnswerRequest {
+  question: string
+  scope: SearchScope
+  history: ChatTurn[]
+  settings: ChatSettings
+  /** The id of the question, as `chat_traces` will know it. */
+  questionId: string
+  sessionId: string
+  /** More tags for the trace in MLflow. */
+  tags?: Record<string, string>
+}
 
-  const settings = chatSettings()
-  const id = randomUUID()
-  const started = Date.now()
-  const { sessionId, history } = await joinSession(input.sessionId, settings.historyMessages)
+export interface AnsweredQuestion {
+  answer: string
+  /** Why no answer was made; the steps until then are kept. */
+  error: string | null
+  steps: ChatTraceStep[]
+  mlflowTraceId: string | null
+  embeddingModel: string
+  decider: ReturnType<typeof getDecider>
+  answerInstructions: ReturnType<typeof instructionsFor>
+  rerankGuidance: ReturnType<typeof instructionsFor>
+}
+
+/**
+ * Answers one question the way the chat does: with its settings, its skills
+ * and its searches, as one trace in MLflow. It writes nothing to the
+ * database, so the test questions (`pnpm eval:run`) use it too.
+ */
+export async function answerQuestion(request: AnswerRequest): Promise<AnsweredQuestion> {
+  const { question, scope, history, settings } = request
   const steps: ChatTraceStep[] = []
   const embed = getEmbedder()
   const decider = getDecider()
@@ -133,33 +149,84 @@ export async function askArchive(input: ChatQuestion, asker: Asker): Promise<Cha
   const answerer = getAnswerer()
   try {
     answer = await traceQuestion(
-      { question: input.question, questionId: id, sessionId },
+      {
+        question,
+        questionId: request.questionId,
+        sessionId: request.sessionId,
+        tags: request.tags,
+      },
       () =>
         answerer({
-          question: input.question,
+          question,
           instructions: answerInstructions.text,
           history,
           settings,
           trace: (step) => steps.push(step),
           search: (query) =>
-            hybridSearch(input.question, query, input, {
-              embed: async (texts) => {
-                const embedded = await embed(texts)
-                embeddingModel = embedded.model
-                return embedded
-              },
-              decider,
-              rerankGuidance: rerankGuidance.text,
-              settings,
-              numberOf,
-            }),
+            traceSearch(query, () =>
+              hybridSearch(question, query, scope, {
+                embed: async (texts) => {
+                  const embedded = await embed(texts)
+                  embeddingModel = embedded.model
+                  return embedded
+                },
+                decider,
+                rerankGuidance: rerankGuidance.text,
+                settings,
+                numberOf,
+              }),
+            ),
         }),
       (traceId) => (mlflowTraceId = traceId),
     )
   } catch (caught) {
-    console.error(`Chat question ${id} failed:`, caught)
+    console.error(`Chat question ${request.questionId} failed:`, caught)
     error = caught instanceof Error ? caught.message : String(caught)
   }
+  return {
+    answer,
+    error,
+    steps,
+    mlflowTraceId,
+    embeddingModel,
+    decider,
+    answerInstructions,
+    rerankGuidance,
+  }
+}
+
+/**
+ * Answers one question and leaves a trace of how the answer came to be. The
+ * trace and the cost are written whether the answer was made or not.
+ */
+export async function askArchive(input: ChatQuestion, asker: Asker): Promise<ChatAnswer> {
+  const limit = await overLimit(asker)
+  if (limit !== null) return { ok: false, problem: limit }
+  if ((missingKey('chat') ?? missingKey('embedding')) !== null) {
+    return { ok: false, problem: 'not-set-up' }
+  }
+
+  const settings = chatSettings()
+  const id = randomUUID()
+  const started = Date.now()
+  const { sessionId, history } = await joinSession(input.sessionId, settings.historyMessages)
+  const {
+    answer,
+    error,
+    steps,
+    mlflowTraceId,
+    embeddingModel,
+    decider,
+    answerInstructions,
+    rerankGuidance,
+  } = await answerQuestion({
+    question: input.question,
+    scope: input,
+    history,
+    settings,
+    questionId: id,
+    sessionId,
+  })
 
   const passages = steps.flatMap((step): ChatPassage[] =>
     step.kind === 'search' ? step.passages : [],
