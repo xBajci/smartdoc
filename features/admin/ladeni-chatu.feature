@@ -60,6 +60,14 @@ Feature: Ladění chatu
     Then blok "Historie pro model" ukazuje otázku návštěvníka a odpověď archivu s firmou "Elektro Haná"
     And záznam první otázky říká, že model žádnou historii nedostal
 
+  Scenario: Dlouhý rozhovor se shrne a další otázky stojí na shrnutí
+    Given návštěvník se v chatu zeptal "Kdo vymění veřejné osvětlení? dlouhy rozhovor", na kterou model dostal přes 80 000 tokenů
+    And potom se zeptal "Kolik?" a "A kdy?"
+    When správce otevře rozhovor
+    Then záznam otázky "Kolik?" začíná shrnutím rozhovoru modelem "fake:summary", které shrnuje 1 otázku
+    And historie pro model u otázky "Kolik?" je jen to shrnutí
+    And otázka "A kdy?" už nic neshrnuje a její historie je shrnutí a otázka "Kolik?" s odpovědí
+
   Scenario: Navazující otázka dostane úryvky dřívější otázky a čísluje úryvky dál
     Given návštěvník se v chatu zeptal "Kdo vymění veřejné osvětlení?" a potom "Kolik?"
     When správce otevře rozhovor a záznam otázky "Kolik?"

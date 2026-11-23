@@ -407,6 +407,7 @@ export const cs = {
       rerank: 'Reranker',
       glossary: 'Glosář chatu',
       rewrite: 'Chat: přeformulování otázky',
+      'summary-chat': 'Chat: shrnutí rozhovoru',
     },
   },
 
@@ -460,6 +461,9 @@ export const cs = {
     tokens: '{input} tokenů dovnitř, {output} ven',
     tokensCached: '{input} tokenů dovnitř, z toho {cached} z cache, {output} ven',
     modelStep: 'Krok {step}: volání modelu',
+    summaryStep: 'Shrnutí rozhovoru',
+    summaryQuestions: 'shrnuto otázek: {count}',
+    summaryFailed: 'Shrnutí selhalo, model dostal celou historii',
     rewriteStep: 'Přeformulování otázky',
     rewriteQuery: 'Dotaz pro první hledání',
     rewriteNoQueries: 'Bez prvního hledání: odpověď je už v rozhovoru.',

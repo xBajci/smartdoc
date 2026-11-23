@@ -283,6 +283,35 @@ test.describe('Ladění chatu', () => {
     await expect(historyBlock(page, FIRST)).toContainText('Model nedostal žádnou historii')
   })
 
+  test('Dlouhý rozhovor se shrne a další otázky stojí na shrnutí', async ({ page }) => {
+    // The fake chat model reports 90 000 input tokens for this question, past the limit of 80 000.
+    const long = `${FIRST} dlouhy rozhovor`
+    await page.goto('/')
+    await visitorAsks(page, long, 'Kolik?', 'A kdy?')
+
+    await signIn(page)
+    await openAdminPage(page, 'Ladění chatu')
+    await page.getByRole('button', { name: `Otevřít rozhovor: ${long}` }).click()
+
+    await openQuestion(page, 'Kolik?')
+    const summary = questionTrace(page, 'Kolik?').locator('.trace-step').first()
+    await expect(summary).toContainText('Shrnutí rozhovoru')
+    await expect(summary).toContainText('fake:summary')
+    await expect(summary).toContainText('shrnuto otázek: 1')
+    await expect(summary).toContainText(`Návštěvník se ptal: ${long}`)
+    const turns = historyBlock(page, 'Kolik?').locator('.trace-history li')
+    await expect(turns).toHaveCount(1)
+    await expect(turns.first()).toContainText('Shrnutí dřívější části rozhovoru:')
+
+    // The next question starts from the summary and the question after it; it sums up nothing.
+    await openQuestion(page, 'A kdy?')
+    await expect(questionTrace(page, 'A kdy?')).not.toContainText('Shrnutí rozhovoru')
+    const later = historyBlock(page, 'A kdy?').locator('.trace-history li')
+    await expect(later).toHaveCount(3)
+    await expect(later.nth(0)).toContainText('Shrnutí dřívější části rozhovoru:')
+    await expect(later.nth(1)).toContainText('Kolik?')
+  })
+
   test('Navazující otázka dostane úryvky dřívější otázky a čísluje úryvky dál', async ({
     page,
   }) => {

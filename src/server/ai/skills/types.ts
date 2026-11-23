@@ -18,6 +18,7 @@ export type SkillUse =
   | 'describe-document'
   | 'describe-image'
   | 'categorize'
+  | 'chat-summary'
   | 'chat-rewrite'
   | 'chat-answer'
   | 'chat-rerank'
@@ -58,6 +59,8 @@ export const SKILL_USES: readonly {
     label: 'Výběr kategorie (rozhodovací model)',
     system: false,
   },
+  // Sums up a long conversation; it answers nothing, like the rewrite.
+  { use: 'chat-summary', group: 'chat', label: 'Shrnutí dlouhého rozhovoru', system: false },
   // Writes the queries of the first search; it searches nothing and answers nothing, so the
   // system prompt of the chat, which is about answering, is not for it.
   {

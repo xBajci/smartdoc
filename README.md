@@ -142,6 +142,11 @@ Podrobnosti jsou v návrhu chatu.
   otázek a poskytovatel začátek promptu vezme z cache. Čísla úryvků běží přes celý rozhovor, takže odpověď smí
   citovat i úryvek dřívější otázky; návštěvník vidí zdroje každé odpovědi očíslované od jedné. Model pro
   přeformulování nástroje nemá, proto dostane historii jako text: otázku, nalezené úryvky a odpověď.
+- **Strop rozhovoru a shrnutí.** Historie se nikdy neořezává, jen roste, aby začátek promptu zůstal v cache. Když
+  prompt poslední otázky přeroste `CHAT_HISTORY_TOKENS` (80 000), malý model (`AI_SUMMARY_MODEL`, skill
+  `chat/shrnuti`) shrne dosavadní rozhovor. Shrnutí pak stojí místo všech dřívějších otázek a další otázky na něj
+  navazují celými zprávami. Úryvky před shrnutím už citovat nejde, čísla úryvků běží dál. Když shrnutí selže,
+  model dostane celou historii. Ladění shrnutí ukáže jako první krok otázky.
 - **Limity smyčky.** Chatovací model dostává vždy oba nástroje, i když je limit jednoho vyčerpaný; měnit seznam
   nástrojů by zahodilo cache. Nástroj s vyčerpaným limitem modelu odpoví, že už nesmí, a ladění odmítnuté hledání
   ukáže. Když nezbývá nic, nebo v posledním povoleném kroku, smyčka pošle `toolChoice: 'none'` a model musí odpovědět.

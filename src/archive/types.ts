@@ -199,6 +199,7 @@ export interface SessionCall {
     | 'rerank'
     | 'glossary'
     | 'rewrite'
+    | 'summary-chat'
   model: string
   /** The place the call was made at; in older records the key of one skill. */
   skillKey: string | null
@@ -395,6 +396,21 @@ export interface ChatRerank {
 }
 
 export type ChatTraceStep =
+  | {
+      kind: 'summary'
+      model: string
+      /** What the models are told in place of the earlier questions; empty when the summary failed. */
+      text: string
+      /** How many questions it stands for. */
+      questions: number
+      /** Why there is no summary; then the whole history was sent. */
+      error: string | null
+      durationMs: number
+      inputTokens: number
+      cachedInputTokens?: number
+      outputTokens: number
+      costUsd: number | null
+    }
   | {
       kind: 'rewrite'
       model: string

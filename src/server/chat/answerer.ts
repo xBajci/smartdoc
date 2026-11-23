@@ -290,6 +290,8 @@ async function calculate(
 
 /** Tokens the fake model reports for every call, so costs in tests are fixed. */
 const FAKE_USAGE = { inputTokens: 1000, outputTokens: 100 }
+/** Input tokens the fake model reports for a question with "dlouhy rozhovor", past the limit of the history. */
+const FAKE_LONG_INPUT = 90_000
 /** Input of every call after the first that the fake model reads from the cache, as a real provider would. */
 const FAKE_CACHED_TOKENS = 800
 const FAKE_QUOTE_CHARACTERS = 220
@@ -305,6 +307,8 @@ const SUM_SCRIPT = 'return parametry.castky.reduce((soucet, castka) => soucet + 
  * The answer quotes the best piece. A question with "selhani" fails on purpose.
  * A question with "celkem" adds up the amounts in crowns of the found pieces in
  * the sandbox; with "chybny skript" as well, the first script has a syntax error.
+ * A question with "dlouhy rozhovor" reports a prompt past CHAT_HISTORY_TOKENS,
+ * so the next question of the session is answered from a summary.
  */
 const fakeAnswerer: Answerer = async ({ question, history, settings, found, search, trace }) => {
   const model = modelName('chat')
@@ -312,6 +316,9 @@ const fakeAnswerer: Answerer = async ({ question, history, settings, found, sear
   const call = (text: string, searches: string[], calculations = 0) => {
     step += 1
     const cachedInputTokens = step === 1 ? 0 : FAKE_CACHED_TOKENS
+    const inputTokens = question.includes('dlouhy rozhovor')
+      ? FAKE_LONG_INPUT
+      : FAKE_USAGE.inputTokens
     trace({
       kind: 'model',
       step,
@@ -320,9 +327,10 @@ const fakeAnswerer: Answerer = async ({ question, history, settings, found, sear
       searches,
       calculations,
       durationMs: 1,
-      ...FAKE_USAGE,
+      inputTokens,
+      outputTokens: FAKE_USAGE.outputTokens,
       cachedInputTokens,
-      costUsd: costOfCall(model, FAKE_USAGE.inputTokens, FAKE_USAGE.outputTokens, {
+      costUsd: costOfCall(model, inputTokens, FAKE_USAGE.outputTokens, {
         read: cachedInputTokens,
         written: 0,
       }),

@@ -10,6 +10,7 @@ export type ModelRole =
   | 'ocr'
   | 'description'
   | 'rewrite'
+  | 'summary'
   | 'chat'
   | 'embedding'
   | 'decision'
@@ -31,6 +32,8 @@ const SETTINGS: Record<ModelRole, { variable: string; fallback: string }> = {
   // Reads recorded sessions and proposes better skills. Runs rarely, so it may be the strongest.
   // Writes the queries of the first search of a chat question; small and cheap, it reads the glossary.
   rewrite: { variable: 'AI_REWRITE_MODEL', fallback: 'openai:gpt-6-luna' },
+  // Sums up a chat conversation that grew past CHAT_HISTORY_TOKENS.
+  summary: { variable: 'AI_SUMMARY_MODEL', fallback: 'openai:gpt-6-luna' },
   // Answers visitors' questions from pieces of documents; must be able to call a tool.
   chat: { variable: 'AI_CHAT_MODEL', fallback: 'openai:gpt-6.1-terra' },
   // Turns a text into a vector of 1536 numbers, for the search by meaning.

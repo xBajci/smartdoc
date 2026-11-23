@@ -185,7 +185,32 @@ function Rewrite({ step }: Readonly<{ step: Extract<ChatTraceStep, { kind: 'rewr
   )
 }
 
+function Summary({ step }: Readonly<{ step: Extract<ChatTraceStep, { kind: 'summary' }> }>) {
+  return (
+    <li className="call trace-step trace-step--model">
+      <h3>{cs.chatDebug.summaryStep}</h3>
+      <Facts
+        facts={[
+          step.model,
+          fill(cs.chatDebug.summaryQuestions, { count: step.questions }),
+          tokens(step),
+          took(step.durationMs),
+          cost(step.costUsd),
+        ]}
+      />
+      {step.error === null ? (
+        <p className="extracted-text">{step.text}</p>
+      ) : (
+        <p className="extracted-text call__error">
+          {cs.chatDebug.summaryFailed}: {step.error}
+        </p>
+      )}
+    </li>
+  )
+}
+
 function Step({ step }: Readonly<{ step: ChatTraceStep }>) {
+  if (step.kind === 'summary') return <Summary step={step} />
   if (step.kind === 'rewrite') return <Rewrite step={step} />
   if (step.kind === 'model') {
     return (

@@ -21,12 +21,13 @@ import { getAnswerer } from './answerer'
 import { resolveCitations } from './citations'
 import { getDecider } from './decisions'
 import { getEmbedder } from './embedder'
-import { sessionHistory, type SessionHistory, NO_HISTORY } from './history'
+import { sessionHistory, summarized, type SessionHistory, NO_HISTORY } from './history'
 import { chatFixed, rewriteFixed } from './instructions'
 import { sendFeedback, traceQuestion, traceSearch, type Feedback } from './mlflow'
 import { hybridSearch, type SearchScope, type SearchStep } from './retrieval'
 import { getRewriter } from './rewriter'
 import { chatSettings, type ChatSettings } from './settings'
+import { getSummarizer } from './summarizer'
 
 const HOUR_MS = 3_600_000
 const RECENT_SESSIONS = 100
@@ -35,7 +36,7 @@ const TITLE_CHARACTERS = 80
 
 /** One call as the records of AI calls keep it. */
 interface UsageCall {
-  operation: 'rewrite' | 'chat' | 'embed' | 'weigh' | 'rerank'
+  operation: 'summary-chat' | 'rewrite' | 'chat' | 'embed' | 'weigh' | 'rerank'
   /** The place the call was made at and the skills it was told; a search has none. */
   skillKey?: string
   skills?: { key: string; version: number }[]
@@ -83,7 +84,6 @@ async function overLimit(asker: Asker): Promise<'hourly-limit' | 'daily-limit' |
  */
 async function joinSession(
   sessionId: string | undefined,
-  historyMessages: number,
 ): Promise<{ sessionId: string; history: SessionHistory }> {
   if (sessionId === undefined) return { sessionId: randomUUID(), history: NO_HISTORY }
   const earlier = await getDatabase()
@@ -98,7 +98,7 @@ async function joinSession(
     .where(eq(chatTraces.sessionId, sessionId))
     .orderBy(asc(chatTraces.createdAt))
   if (earlier.length === 0) return { sessionId: randomUUID(), history: NO_HISTORY }
-  return { sessionId, history: sessionHistory(earlier, historyMessages) }
+  return { sessionId, history: sessionHistory(earlier) }
 }
 
 export interface AnswerRequest {
@@ -115,6 +115,8 @@ export interface AnswerRequest {
 
 export interface AnsweredQuestion {
   answer: string
+  /** The history the question was answered with: the one asked with, or its summary. */
+  history: SessionHistory
   /** What the next question of the session sends again; `null` when no answer was made. */
   messages: ModelMessage[] | null
   /** Why no answer was made; the steps until then are kept. */
@@ -123,6 +125,7 @@ export interface AnsweredQuestion {
   mlflowTraceId: string | null
   embeddingModel: string
   decider: ReturnType<typeof getDecider>
+  summaryInstructions: ReturnType<typeof instructionsFor>
   rewriteInstructions: ReturnType<typeof instructionsFor>
   answerInstructions: ReturnType<typeof instructionsFor>
   rerankGuidance: ReturnType<typeof instructionsFor>
@@ -134,12 +137,14 @@ export interface AnsweredQuestion {
  * database, so the test questions (`pnpm eval:run`) use it too.
  */
 export async function answerQuestion(request: AnswerRequest): Promise<AnsweredQuestion> {
-  const { question, scope, history, settings } = request
+  const { question, scope, settings } = request
+  let history = request.history
   const steps: ChatTraceStep[] = []
   const embed = getEmbedder()
   const decider = getDecider()
   // What the models of this question are told: the system prompt and the skills of the chat.
   const skills = await loadSkills()
+  const summaryInstructions = instructionsFor(skills, 'chat-summary')
   const rewriteInstructions = instructionsFor(skills, 'chat-rewrite', rewriteFixed())
   const answerInstructions = instructionsFor(skills, 'chat-answer', chatFixed())
   const rerankGuidance = instructionsFor(skills, 'chat-rerank')
@@ -174,6 +179,7 @@ export async function answerQuestion(request: AnswerRequest): Promise<AnsweredQu
   let messages: ModelMessage[] | null = null
   let error: string | null = null
   let mlflowTraceId: string | null = null
+  const summarizer = getSummarizer()
   const rewriter = getRewriter()
   const answerer = getAnswerer()
   try {
@@ -185,6 +191,17 @@ export async function answerQuestion(request: AnswerRequest): Promise<AnsweredQu
         tags: request.tags,
       },
       async () => {
+        // The history only grows, so its start stays in the provider's cache. Once the prompt
+        // has grown past the limit, a summary stands for the questions so far.
+        if (history.promptTokens > settings.historyTokens) {
+          const summary = await summarizer({
+            turns: history.forRewrite,
+            questions: history.questions,
+            instructions: summaryInstructions.text,
+          })
+          steps.push(summary)
+          if (summary.error === null) history = summarized(history, summary.text)
+        }
         // A small model writes the queries of the first search, and the code runs them;
         // the chat model starts with their passages and searches more only when it needs to.
         const rewrite = await rewriter({
@@ -215,12 +232,14 @@ export async function answerQuestion(request: AnswerRequest): Promise<AnsweredQu
   }
   return {
     answer,
+    history,
     messages,
     error,
     steps,
     mlflowTraceId,
     embeddingModel,
     decider,
+    summaryInstructions,
     rewriteInstructions,
     answerInstructions,
     rerankGuidance,
@@ -241,22 +260,24 @@ export async function askArchive(input: ChatQuestion, asker: Asker): Promise<Cha
   const settings = chatSettings()
   const id = randomUUID()
   const started = Date.now()
-  const { sessionId, history } = await joinSession(input.sessionId, settings.historyMessages)
+  const { sessionId, history: asked } = await joinSession(input.sessionId)
   const {
     answer,
+    history,
     messages,
     error,
     steps,
     mlflowTraceId,
     embeddingModel,
     decider,
+    summaryInstructions,
     rewriteInstructions,
     answerInstructions,
     rerankGuidance,
   } = await answerQuestion({
     question: input.question,
     scope: input,
-    history,
+    history: asked,
     settings,
     questionId: id,
     sessionId,
@@ -269,6 +290,23 @@ export async function askArchive(input: ChatQuestion, asker: Asker): Promise<Cha
   const resolved = resolveCitations(answer, [...history.passages, ...passages])
 
   const usage = steps.flatMap((step): UsageCall[] => {
+    if (step.kind === 'summary') {
+      return [
+        {
+          operation: 'summary-chat',
+          skillKey: 'chat-summary',
+          skills: summaryInstructions.skills,
+          model: step.model,
+          input: `Otázek: ${step.questions}`,
+          output: step.text,
+          error: step.error,
+          durationMs: step.durationMs,
+          inputTokens: step.inputTokens,
+          outputTokens: step.outputTokens,
+          costUsd: step.costUsd,
+        },
+      ]
+    }
     if (step.kind === 'rewrite') {
       return [
         {
@@ -370,6 +408,7 @@ export async function askArchive(input: ChatQuestion, asker: Asker): Promise<Cha
       historyPassages: history.passages.length,
       embeddingModel,
       decisionModel: decider === null ? 'off' : modelName('decision'),
+      summaryModel: modelName('summary'),
       rewriteModel: modelName('rewrite'),
       rewriteInstructions: rewriteInstructions.text,
       instructions: answerInstructions.text,
