@@ -93,7 +93,8 @@ Klíč je v `OPENAI_API_KEY` nebo `ANTHROPIC_API_KEY`. Testy používají dodava
   upravuje a přidává vlastní; jeho texty jsou v databázi (`skill_versions`, `custom_skills`) a každé
   uložení je nová verze.  Záznam každého volání říká, které skilly a v jaké verzi dostalo.
 - **Náklady** (`/sprava/naklady`): součty podle modelu a typu souboru. Ceny modelů jsou
-  v `src/server/ai/prices.ts`, proměnná `AI_PRICES` je doplní nebo opraví.
+  v `src/server/ai/prices.ts`, proměnná `AI_PRICES` je doplní nebo opraví. Cena je `[vstup, výstup]`,
+  volitelně i `[…, čtení z cache, zápis do cache]`; bez nich stojí vstup z cache jako ostatní vstup.
 
 Nahrává se z přehledu dokumentů tlačítkem „Nahrát“. Okno soubory uloží a zavře se, obsah se
 potom zpracuje na pozadí a přehled ukazuje stav každého dokumentu. Obrázek se otevírá v okně
@@ -127,8 +128,28 @@ Hledá server, ne prohlížeč. Funkce je v `src/server/search-service.ts`.
 
 ## Chat
 
-Návštěvník se zeptá, model si nástrojem vyžádá hledání a odpoví jen z nalezených úryvků.
+Návštěvník se zeptá. Malý model napíše dotazy pro první hledání, kód je spustí a chatovací model
+odpoví jen z nalezených úryvků; další hledání si vyžádá nástrojem, když úryvky nestačí.
 Podrobnosti jsou v návrhu chatu.
+
+- **Přeformulování otázky** (`src/server/chat/rewriter.ts`, model `AI_REWRITE_MODEL`). Z otázky a rozhovoru
+  podle skillu `chat/preformulovani` a glosáře napíše jeden až tři dotazy jako JSON (místo `chat-rewrite`). U navazující otázky
+  smí vrátit žádný, když odpověď už je v rozhovoru. Když selže, hledá se otázka sama. Hledání spustí kód a
+  chatovací model ho dostane jako své vlastní volání nástroje. Nic se tím nevynucuje, takže to funguje u
+  OpenAI i u Anthropicu. První hledání se počítá do `CHAT_MAX_SEARCHES` jako jedno.
+- **Historie rozhovoru.** Ke každé otázce se uloží zprávy modelu (`chat_traces.messages`): otázka, první hledání,
+  volání nástrojů, úryvky a odpověď. Další otázka je pošle znovu beze změny, takže model zná i úryvky dřívějších
+  otázek a poskytovatel začátek promptu vezme z cache. Čísla úryvků běží přes celý rozhovor, takže odpověď smí
+  citovat i úryvek dřívější otázky; návštěvník vidí zdroje každé odpovědi očíslované od jedné. Model pro
+  přeformulování nástroje nemá, proto dostane historii jako text: otázku, nalezené úryvky a odpověď.
+- **Strop rozhovoru a shrnutí.** Historie se nikdy neořezává, jen roste, aby začátek promptu zůstal v cache. Když
+  prompt poslední otázky přeroste `CHAT_HISTORY_TOKENS` (80 000), malý model (`AI_SUMMARY_MODEL`, skill
+  `chat/shrnuti`) shrne dosavadní rozhovor. Shrnutí pak stojí místo všech dřívějších otázek a další otázky na něj
+  navazují celými zprávami. Úryvky před shrnutím už citovat nejde, čísla úryvků běží dál. Když shrnutí selže,
+  model dostane celou historii. Ladění shrnutí ukáže jako první krok otázky.
+- **Limity smyčky.** Chatovací model dostává vždy oba nástroje, i když je limit jednoho vyčerpaný; měnit seznam
+  nástrojů by zahodilo cache. Nástroj s vyčerpaným limitem modelu odpoví, že už nesmí, a ladění odmítnuté hledání
+  ukáže. Když nezbývá nic, nebo v posledním povoleném kroku, smyčka pošle `toolChoice: 'none'` a model musí odpovědět.
 
 - **Kousky.** Zpracování rozdělí dokument na kousky (tabulka `document_chunks`) a ke každému
   uloží embedding. Dokumenty zpracované dřív připraví `pnpm chat:index`.
@@ -140,8 +161,26 @@ Podrobnosti jsou v návrhu chatu.
   Volání jsou dvě záměrně: váhy musí být známé dřív, než se vyberou úryvky pro reranker.
   Když Jev selže nebo chybí klíč, platí pořadí RRF se stejnými vahami.
   Hledání vždy uloží i to pořadí bez něj. Odpověď ho nepoužije, ladění ho ukáže vedle pro porovnání.
+- **Výpočty** (nástroj `spocitej`, `src/server/chat/sandbox.ts`). Když odpověď potřebuje součet, průměr
+  nebo změnu v procentech, model napíše skript v JavaScriptu a čísla z úryvků mu dá jako parametry.
+  Skript běží v QuickJS (WebAssembly) bez sítě, souborů a Node. Engine má pevně 64 MB paměti a běží
+  ve vlastním vlákně (`src/server/chat/sandbox-worker.ts`). Když skript nedoběhne do 1,5 s, server
+  vlákno zastaví zvenku, takže pomalý skript nikdy nezdrží zbytek serveru. Build musí mít QuickJS jako
+  soubory: `traceDeps` ve `vite.config.ts`. Do `CHAT_MAX_CALCULATIONS` se počítá jen skript, který doběhl bez chyby. Skript
+  s chybou model opraví, chybných běhů smí být nejvýš `CHAT_MAX_ERRORED_RUNS`. Návštěvník vidí jen
+  výsledek se zdroji, skript je v ladění. Kdy a jak počítat říká skill `chat/pocitani`.
 - **Ladění** (`/sprava/chat`): u každé otázky celý postup. Volání modelu, obě větve hledání se skóre,
-  váhy větví, skóre rerankeru, texty úryvků, odpověď, cena. Správce tam může položit zkušební otázku.
+  váhy větví, skóre rerankeru, texty úryvků, výpočty, odpověď, cena. Správce tam může položit zkušební otázku.
+- **Glosář** (skill `chat/glosar`). Říká modelu, o čem dokumenty archivu jsou a jakými slovy úřad píše:
+  místní názvy, zkratky, slova návštěvníka a slova úřadu. Text píše model ze všech dokumentů najednou
+  (název, kategorie, rok, krátký popis): `pnpm glossary:build`, model `AI_GLOSSARY_MODEL`. Je to jednorázový
+  výtah, ne seznam všech dokumentů; znovu ho pusť, až dokumentů hodně přibude. Příkaz čte databázi z
+  `DATABASE_URL` a přepíše `src/server/ai/skills/chat/glosar.md`. Soubor zkontroluj a pošli do aplikace
+  přes `pnpm skills:push chat/glosar`. Nový klíč skillu musí být v aplikaci nasazený dřív než první push.
+- **Cache promptu.** Každý krok smyčky posílá modelu znovu zadání, nástroje a předchozí kroky. Poskytovatel
+  ten začátek drží v cache a účtuje ho levněji: OpenAI sám (`promptCacheKey`), Anthropic po zapnutí
+  `cacheControl`. Obojí nastavuje `src/server/chat/answerer.ts`. Ladění u každého volání ukazuje, kolik
+  vstupních tokenů přišlo z cache, a cena je s tím počítaná.
 - **Limity.** `CHAT_HOURLY_LIMIT` na návštěvníka za hodinu, `CHAT_DAILY_LIMIT` celkem za den.
 
 | Co změnit | Kde |

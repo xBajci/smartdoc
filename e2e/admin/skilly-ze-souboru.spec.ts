@@ -29,7 +29,8 @@ async function searchSkill(page: Page) {
   await page
     .getByRole('navigation', { name: 'Seznam skillů' })
     .locator('.skills-nav__item')
-    .filter({ hasText: 'Hledání v archivu' })
+    // By the name alone: the purpose of another skill speaks of searching the archive too.
+    .filter({ has: page.locator('strong', { hasText: /^Hledání v archivu$/ }) })
     .click()
   const editor = page.getByRole('form', { name: 'Hledání v archivu' })
   await expect(editor).toBeVisible()

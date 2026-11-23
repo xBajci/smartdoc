@@ -1,7 +1,9 @@
 Feature: Chat nad archivem
   Vedle knihovny je panel chatu. Návštěvník se zeptá a odpověď vychází jen z dokumentů archivu.
   Aplikace k otázce najde úryvky dokumentů (slova a význam) a model z nich odpoví se zdroji.
-  V testech odpovídá náhradní model: cituje nejlepší nalezený úryvek.
+  Když odpověď potřebuje výpočet, model napíše skript a spustí ho v izolovaném prostředí bez sítě a souborů.
+  V testech odpovídá náhradní model: cituje nejlepší nalezený úryvek. Na otázku se slovem "celkem"
+  sečte částky v korunách z nalezených úryvků.
 
   Scenario: Panel chatu je vedle seznamu dokumentů
     Given návštěvník je na hlavní stránce
@@ -15,6 +17,13 @@ Feature: Chat nad archivem
     Then odpověď obsahuje "Práce provede firma Elektro Haná za 870 000 Kč" a odkaz [1]
     And pod odpovědí je zdroj "Zápis z 9. zasedání zastupitelstva · str. 2"
     And vidí větu "Odpověď si ověřte v uvedených zdrojích."
+
+  Scenario: Otázka na výpočet dostane spočítaný výsledek se zdroji, bez skriptu
+    Given strana 2 zápisu uvádí osvětlení za 870 000 Kč a strana 3 dotace spolkům 240 000 Kč
+    When návštěvník se zeptá "Kolik obec dá celkem za osvětlení a dotace spolkům?"
+    Then odpověď obsahuje "Celkem 1 110 000 Kč" a odkazy [1] a [2]
+    And pod odpovědí jsou zdroje "Zápis z 9. zasedání zastupitelstva" se stranou 2 i se stranou 3
+    And odpověď neukazuje skript ani parametry výpočtu
 
   Scenario: Zdroj otevře dokument na uvedené straně a chat zůstane
     Given návštěvník dostal odpověď se zdrojem "Zápis z 9. zasedání zastupitelstva"

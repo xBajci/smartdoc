@@ -25,8 +25,17 @@ export function chatSettings() {
     rrfK: setting('CHAT_RRF_K', 60),
     /** CHAT_MAX_SEARCHES: searches the model may make for one question. */
     maxSearches: setting('CHAT_MAX_SEARCHES', 3),
-    /** CHAT_HISTORY_MESSAGES: earlier messages of the conversation the model sees. */
-    historyMessages: setting('CHAT_HISTORY_MESSAGES', 12),
+    /** CHAT_MAX_CALCULATIONS: scripts that ran without an error, which the model may have for one question. */
+    maxCalculations: setting('CHAT_MAX_CALCULATIONS', 3),
+    /** CHAT_MAX_ERRORED_RUNS: scripts that ended in an error; they do not count as calculations, but this many end the calculating. */
+    maxErroredRuns: setting('CHAT_MAX_ERRORED_RUNS', 3),
+    /**
+     * CHAT_HISTORY_TOKENS: how far the prompt of a question may grow with the
+     * conversation. Past it, a small model sums up the earlier questions and
+     * the summary stands for them; until then the history only grows, so the
+     * provider keeps serving its start from the cache.
+     */
+    historyTokens: setting('CHAT_HISTORY_TOKENS', 80_000),
     /** CHAT_HOURLY_LIMIT: questions one visitor may ask in an hour. */
     hourlyLimit: setting('CHAT_HOURLY_LIMIT', 20),
     /** CHAT_DAILY_LIMIT: questions all visitors together may ask in a day. */

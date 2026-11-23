@@ -197,6 +197,9 @@ export interface SessionCall {
     | 'chat'
     | 'weigh'
     | 'rerank'
+    | 'glossary'
+    | 'rewrite'
+    | 'summary-chat'
   model: string
   /** The place the call was made at; in older records the key of one skill. */
   skillKey: string | null
@@ -394,17 +397,52 @@ export interface ChatRerank {
 
 export type ChatTraceStep =
   | {
+      kind: 'summary'
+      model: string
+      /** What the models are told in place of the earlier questions; empty when the summary failed. */
+      text: string
+      /** How many questions it stands for. */
+      questions: number
+      /** Why there is no summary; then the whole history was sent. */
+      error: string | null
+      durationMs: number
+      inputTokens: number
+      cachedInputTokens?: number
+      outputTokens: number
+      costUsd: number | null
+    }
+  | {
+      kind: 'rewrite'
+      model: string
+      /** The queries of the first search; empty when the conversation already holds the answer. */
+      queries: string[]
+      /** Why the model gave no queries; then the question itself was searched. */
+      error: string | null
+      durationMs: number
+      inputTokens: number
+      cachedInputTokens?: number
+      outputTokens: number
+      costUsd: number | null
+    }
+  | {
       kind: 'model'
       /** Counted from one. */
       step: number
       model: string
-      /** What the model wrote in this step; empty when it only asked for a search. */
+      /** What the model wrote in this step; empty when it only asked for a search or a calculation. */
       text: string
       /** The searches the model asked for in this step. */
       searches: string[]
+      /** Searches it asked for after the searches were used up; they did not run. */
+      refusedSearches?: string[]
+      /** How many calculations the model asked for in this step; absent in traces older than them. */
+      calculations?: number
       /** Time the model took, without the searches it asked for. */
       durationMs: number
+      /** All of the input, the part read from the provider's cache included. */
       inputTokens: number
+      /** Input read from the provider's cache, which costs less; absent in traces older than the cache. */
+      cachedInputTokens?: number
       outputTokens: number
       costUsd: number | null
     }
@@ -421,6 +459,20 @@ export type ChatTraceStep =
       weights?: ChatWeights
       rerank?: ChatRerank
       baseline?: ChatBaselinePassage[]
+    }
+  | {
+      kind: 'calculation'
+      /** The script as the model wrote it: the body of a function that gets `parametry`. */
+      script: string
+      /** The data the model gave the script, as JSON. */
+      parameters: string
+      /** What the script returned, as JSON; `null` when it failed. */
+      result: string | null
+      /** What went wrong, as the model was told; `null` when the script ran. */
+      error: string | null
+      /** False when the run was refused because the calculations were used up. */
+      ran: boolean
+      durationMs: number
     }
 
 /** A place in a document that an answer leans on. */

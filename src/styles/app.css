@@ -3541,6 +3541,10 @@ a.icon-button {
   border-left: 3px solid var(--accent);
 }
 
+.trace-step--calculation {
+  border-left: 3px solid var(--ink-soft);
+}
+
 .trace-step__asks {
   display: flex;
   align-items: center;

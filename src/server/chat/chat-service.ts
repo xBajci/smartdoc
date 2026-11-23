@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import type { ModelMessage } from 'ai'
 import { and, asc, count, desc, eq, gt, isNotNull, isNull, ne, sql, type SQL } from 'drizzle-orm'
 import type {
   ChatAnswer,
@@ -10,7 +11,6 @@ import type {
   ChatTrace,
   ChatTraceStep,
   ChatTraceSummary,
-  ChatTurn,
   ChatUpdate,
 } from '../../archive/types'
 import { getDatabase } from '../../db/client'
@@ -23,11 +23,13 @@ import { getAnswerer } from './answerer'
 import { resolveCitations } from './citations'
 import { getDecider } from './decisions'
 import { getEmbedder } from './embedder'
-import { historyFromTraces } from './history'
-import { chatFixed } from './instructions'
+import { sessionHistory, summarized, type SessionHistory, NO_HISTORY } from './history'
+import { chatFixed, rewriteFixed } from './instructions'
 import { sendFeedback, traceQuestion, traceSearch, type Feedback } from './mlflow'
-import { hybridSearch, type SearchScope } from './retrieval'
+import { hybridSearch, type SearchScope, type SearchStep } from './retrieval'
+import { getRewriter } from './rewriter'
 import { chatSettings, type ChatSettings } from './settings'
+import { getSummarizer } from './summarizer'
 
 const HOUR_MS = 3_600_000
 const RECENT_SESSIONS = 100
@@ -36,7 +38,7 @@ const TITLE_CHARACTERS = 80
 
 /** One call as the records of AI calls keep it. */
 interface UsageCall {
-  operation: 'chat' | 'embed' | 'weigh' | 'rerank'
+  operation: 'summary-chat' | 'rewrite' | 'chat' | 'embed' | 'weigh' | 'rerank'
   /** The place the call was made at and the skills it was told; a search has none. */
   skillKey?: string
   skills?: { key: string; version: number }[]
@@ -84,22 +86,27 @@ async function overLimit(asker: Asker): Promise<'hourly-limit' | 'daily-limit' |
  */
 async function joinSession(
   sessionId: string | undefined,
-  historyMessages: number,
-): Promise<{ sessionId: string; history: ChatTurn[] }> {
-  if (sessionId === undefined) return { sessionId: randomUUID(), history: [] }
+): Promise<{ sessionId: string; history: SessionHistory }> {
+  if (sessionId === undefined) return { sessionId: randomUUID(), history: NO_HISTORY }
   const earlier = await getDatabase()
-    .select({ question: chatTraces.question, answer: chatTraces.answer, error: chatTraces.error })
+    .select({
+      question: chatTraces.question,
+      answer: chatTraces.answer,
+      error: chatTraces.error,
+      steps: chatTraces.steps,
+      messages: chatTraces.messages,
+    })
     .from(chatTraces)
     .where(eq(chatTraces.sessionId, sessionId))
     .orderBy(asc(chatTraces.createdAt))
-  if (earlier.length === 0) return { sessionId: randomUUID(), history: [] }
-  return { sessionId, history: historyFromTraces(earlier, historyMessages) }
+  if (earlier.length === 0) return { sessionId: randomUUID(), history: NO_HISTORY }
+  return { sessionId, history: sessionHistory(earlier) }
 }
 
 export interface AnswerRequest {
   question: string
   scope: SearchScope
-  history: ChatTurn[]
+  history: SessionHistory
   settings: ChatSettings
   /** The id of the question, as `chat_traces` will know it. */
   questionId: string
@@ -112,12 +119,18 @@ export interface AnswerRequest {
 
 export interface AnsweredQuestion {
   answer: string
+  /** The history the question was answered with: the one asked with, or its summary. */
+  history: SessionHistory
+  /** What the next question of the session sends again; `null` when no answer was made. */
+  messages: ModelMessage[] | null
   /** Why no answer was made; the steps until then are kept. */
   error: string | null
   steps: ChatTraceStep[]
   mlflowTraceId: string | null
   embeddingModel: string
   decider: ReturnType<typeof getDecider>
+  summaryInstructions: ReturnType<typeof instructionsFor>
+  rewriteInstructions: ReturnType<typeof instructionsFor>
   answerInstructions: ReturnType<typeof instructionsFor>
   rerankGuidance: ReturnType<typeof instructionsFor>
 }
@@ -128,82 +141,133 @@ export interface AnsweredQuestion {
  * database, so the test questions (`pnpm eval:run`) use it too.
  */
 export async function answerQuestion(request: AnswerRequest): Promise<AnsweredQuestion> {
-  const { question, scope, history, settings } = request
-  const report = request.report ?? (() => undefined)
-  let searches = 0
+  const { question, scope, settings } = request
+  let history = request.history
+  // The same step told twice in a row is told once: the queries of the first search run together.
+  let told: ChatProgress | null = null
+  const report = (progress: ChatProgress) => {
+    if (progress === told) return
+    told = progress
+    request.report?.(progress)
+  }
   const steps: ChatTraceStep[] = []
   const embed = getEmbedder()
   const decider = getDecider()
   // What the models of this question are told: the system prompt and the skills of the chat.
   const skills = await loadSkills()
+  const summaryInstructions = instructionsFor(skills, 'chat-summary')
+  const rewriteInstructions = instructionsFor(skills, 'chat-rewrite', rewriteFixed())
   const answerInstructions = instructionsFor(skills, 'chat-answer', chatFixed())
   const rerankGuidance = instructionsFor(skills, 'chat-rerank')
   let embeddingModel = modelName('embedding')
 
-  /** Numbers of pieces, shared by all searches of the question. */
+  /** Numbers of pieces, shared by all searches of the question; they go on from the earlier questions. */
   const numbers = new Map<number, number>()
   const numberOf = (chunkId: number) => {
     const known = numbers.get(chunkId)
     if (known !== undefined) return known
-    numbers.set(chunkId, numbers.size + 1)
-    return numbers.size
+    const number = history.firstNumber + numbers.size
+    numbers.set(chunkId, number)
+    return number
   }
 
+  const search = async (query: string): Promise<SearchStep> => {
+    const found = await traceSearch(query, () =>
+      hybridSearch(question, query, scope, {
+        embed: async (texts) => {
+          const embedded = await embed(texts)
+          embeddingModel = embedded.model
+          return embedded
+        },
+        decider,
+        rerankGuidance: rerankGuidance.text,
+        settings,
+        numberOf,
+        onRerank: () => report('rank'),
+      }),
+    )
+    // The pieces go to the model next, which reads them.
+    report('read')
+    return found
+  }
+  /** Searches of the question; the first counts as one, however many queries it ran. */
+  let searches = 0
+
   let answer = ''
+  let messages: ModelMessage[] | null = null
   let error: string | null = null
   let mlflowTraceId: string | null = null
+  const summarizer = getSummarizer()
+  const rewriter = getRewriter()
   const answerer = getAnswerer()
   try {
-    answer = await traceQuestion(
+    const answered = await traceQuestion(
       {
         question,
         questionId: request.questionId,
         sessionId: request.sessionId,
         tags: request.tags,
       },
-      () =>
-        answerer({
+      async () => {
+        // The history only grows, so its start stays in the provider's cache. Once the prompt
+        // has grown past the limit, a summary stands for the questions so far.
+        if (history.promptTokens > settings.historyTokens) {
+          const summary = await summarizer({
+            turns: history.forRewrite,
+            questions: history.questions,
+            instructions: summaryInstructions.text,
+          })
+          steps.push(summary)
+          if (summary.error === null) history = summarized(history, summary.text)
+        }
+        // A small model writes the queries of the first search, and the code runs them;
+        // the chat model starts with their passages and searches more only when it needs to.
+        const rewrite = await rewriter({
+          question,
+          history: history.forRewrite,
+          instructions: rewriteInstructions.text,
+        })
+        steps.push(rewrite)
+        if (rewrite.queries.length > 0) {
+          searches = 1
+          report('search')
+        }
+        const found = await Promise.all(rewrite.queries.map(search))
+        steps.push(...found)
+        return answerer({
           question,
           instructions: answerInstructions.text,
-          history,
+          history: history.messages,
           settings,
+          found,
           trace: (step) => steps.push(step),
-          search: async (query) => {
+          search: (query) => {
             searches += 1
             // A question allowed one search only has no "last" one to tell of.
             report(searches > 1 && searches >= settings.maxSearches ? 'lastSearch' : 'search')
-            const found = await traceSearch(query, () =>
-              hybridSearch(question, query, scope, {
-                embed: async (texts) => {
-                  const embedded = await embed(texts)
-                  embeddingModel = embedded.model
-                  return embedded
-                },
-                decider,
-                rerankGuidance: rerankGuidance.text,
-                settings,
-                numberOf,
-                onRerank: () => report('rank'),
-              }),
-            )
-            // The pieces go to the model next, which reads them.
-            report('read')
-            return found
+            return search(query)
           },
-        }),
+        })
+      },
       (traceId) => (mlflowTraceId = traceId),
     )
+    answer = answered.text
+    messages = answered.messages
   } catch (caught) {
     console.error(`Chat question ${request.questionId} failed:`, caught)
     error = caught instanceof Error ? caught.message : String(caught)
   }
   return {
     answer,
+    history,
+    messages,
     error,
     steps,
     mlflowTraceId,
     embeddingModel,
     decider,
+    summaryInstructions,
+    rewriteInstructions,
     answerInstructions,
     rerankGuidance,
   }
@@ -227,20 +291,24 @@ export async function askArchive(
   const settings = chatSettings()
   const id = randomUUID()
   const started = Date.now()
-  const { sessionId, history } = await joinSession(input.sessionId, settings.historyMessages)
+  const { sessionId, history: asked } = await joinSession(input.sessionId)
   const {
     answer,
+    history,
+    messages,
     error,
     steps,
     mlflowTraceId,
     embeddingModel,
     decider,
+    summaryInstructions,
+    rewriteInstructions,
     answerInstructions,
     rerankGuidance,
   } = await answerQuestion({
     question: input.question,
     scope: input,
-    history,
+    history: asked,
     settings,
     questionId: id,
     sessionId,
@@ -251,10 +319,45 @@ export async function askArchive(
     step.kind === 'search' ? step.passages : [],
   )
   if (error === null && answer !== '') report?.('check')
-  const resolved = resolveCitations(answer, passages)
+  // The answer may cite a passage an earlier question found; the history gave the model those too.
+  const resolved = resolveCitations(answer, [...history.passages, ...passages])
   if (resolved.sources.length > 0) report?.('sources')
 
   const usage = steps.flatMap((step): UsageCall[] => {
+    if (step.kind === 'summary') {
+      return [
+        {
+          operation: 'summary-chat',
+          skillKey: 'chat-summary',
+          skills: summaryInstructions.skills,
+          model: step.model,
+          input: `Otázek: ${step.questions}`,
+          output: step.text,
+          error: step.error,
+          durationMs: step.durationMs,
+          inputTokens: step.inputTokens,
+          outputTokens: step.outputTokens,
+          costUsd: step.costUsd,
+        },
+      ]
+    }
+    if (step.kind === 'rewrite') {
+      return [
+        {
+          operation: 'rewrite',
+          skillKey: 'chat-rewrite',
+          skills: rewriteInstructions.skills,
+          model: step.model,
+          input: input.question,
+          output: step.queries.join(' | '),
+          error: step.error,
+          durationMs: step.durationMs,
+          inputTokens: step.inputTokens,
+          outputTokens: step.outputTokens,
+          costUsd: step.costUsd,
+        },
+      ]
+    }
     if (step.kind === 'model') {
       return [
         {
@@ -262,8 +365,8 @@ export async function askArchive(
           skillKey: 'chat-answer',
           skills: answerInstructions.skills,
           model: step.model,
-          input: step.step === 1 ? input.question : 'Úryvky z předchozího hledání.',
-          output: step.text === '' ? `Hledat: ${step.searches.join(' | ')}` : step.text,
+          input: step.step === 1 ? input.question : 'Výsledky nástrojů z předchozího kroku.',
+          output: step.text === '' ? toolsAskedFor(step) : step.text,
           error: null,
           durationMs: step.durationMs,
           inputTokens: step.inputTokens,
@@ -272,6 +375,8 @@ export async function askArchive(
         },
       ]
     }
+    // A calculation runs here, in the sandbox, and costs nothing.
+    if (step.kind === 'calculation') return []
     const { weights, rerank } = step
     const decisions = rerank?.durationMs ?? 0
     const calls: UsageCall[] = [
@@ -325,16 +430,21 @@ export async function askArchive(
     id,
     sessionId,
     question: input.question,
-    history,
+    history: history.turns,
     answer: resolved.text,
     error,
     scope: input.scope,
     model: modelName('chat'),
     steps,
+    messages: error === null ? messages : null,
     setup: {
       ...settings,
+      historyPassages: history.passages.length,
       embeddingModel,
       decisionModel: decider === null ? 'off' : modelName('decision'),
+      summaryModel: modelName('summary'),
+      rewriteModel: modelName('rewrite'),
+      rewriteInstructions: rewriteInstructions.text,
       instructions: answerInstructions.text,
     },
     durationMs: Date.now() - started,
@@ -548,4 +658,11 @@ export async function findChatTrace(id: string): Promise<ChatTrace | null> {
     steps: row.steps,
     setup: row.setup,
   }
+}
+
+/** What a model step that wrote no text asked for, as the usage list shows it. */
+function toolsAskedFor(step: Extract<ChatTraceStep, { kind: 'model' }>): string {
+  const asked = step.searches.length === 0 ? [] : [`Hledat: ${step.searches.join(' | ')}`]
+  if ((step.calculations ?? 0) > 0) asked.push(`Spočítat: ${step.calculations}×`)
+  return asked.join(', ')
 }

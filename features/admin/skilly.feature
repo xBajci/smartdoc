@@ -14,6 +14,7 @@ Feature: Skilly: systémový prompt, úpravy a vlastní skilly
     When v seznamu zvolí "Datum a rok dokumentu"
     Then vpravo vidí jeho text v Markdownu a zaškrtnutá místa, kde se použije
     And systémový prompt žádná místa k zaškrtnutí nemá
+    And skupina "Chat" má skill "Glosář archivu" o slovech úřadu, zaškrtnutý pro "Odpověď v chatu"
     And stránka nemá žádné vyhodnocení ani návrhy úprav od modelu
 
   Scenario: Správce upraví skill a další zpracování ho dostane

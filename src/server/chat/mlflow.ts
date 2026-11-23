@@ -111,11 +111,11 @@ export interface TracedQuestion {
  * too; without MLflow it is never called. What `answer` throws is thrown
  * again, after the trace records it.
  */
-export async function traceQuestion(
+export async function traceQuestion<Answer extends { text: string }>(
   question: TracedQuestion,
-  answer: () => Promise<string>,
+  answer: () => Promise<Answer>,
   started: (mlflowTraceId: string) => void,
-): Promise<string> {
+): Promise<Answer> {
   const current = getTracing()
   if (current === null) return answer()
 
@@ -136,9 +136,9 @@ export async function traceQuestion(
     // MLflow names a trace it got over OpenTelemetry by the trace id in hex.
     started(`tr-${span.spanContext().traceId}`)
     try {
-      const text = await answer()
-      span.setAttribute('mlflow.spanOutputs', JSON.stringify(text))
-      return text
+      const answered = await answer()
+      span.setAttribute('mlflow.spanOutputs', JSON.stringify(answered.text))
+      return answered
     } catch (caught) {
       span.recordException(caught instanceof Error ? caught : String(caught))
       span.setStatus({ code: SpanStatusCode.ERROR })

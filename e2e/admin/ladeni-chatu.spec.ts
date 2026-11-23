@@ -4,6 +4,8 @@ import { chatSessionIds, forgetChatTraces, resetArchive } from '../support/datab
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const FIRST = 'Kdo vymění veřejné osvětlení?'
+/** The fake model adds up the amounts in crowns of what it found, in the sandbox. */
+const SUM = 'Kolik obec dá celkem za osvětlení a dotace spolkům?'
 
 /** Asks in the visitor's chat on the current page and waits for each answer. */
 async function visitorAsks(page: Page, ...questions: string[]) {
@@ -102,12 +104,14 @@ test.describe('Ladění chatu', () => {
     await expect(trace.locator('summary').first()).toContainText(FIRST)
     await expect(trace.locator('summary').first()).toContainText('Hledání: 1')
 
-    // The model asks for a search, the search runs both branches, the model answers.
+    // A small model writes the query, the search runs both branches, the chat model answers.
     const steps = trace.locator('.trace-step')
     await expect(steps).toHaveCount(3)
-    await expect(steps.nth(0)).toContainText('Krok 1: volání modelu')
-    await expect(steps.nth(0)).toContainText('fake:chat')
-    await expect(steps.nth(0)).toContainText('Model žádá hledání: Kdo vymění veřejné osvětlení?')
+    await expect(steps.nth(0)).toContainText('Přeformulování otázky')
+    await expect(steps.nth(0)).toContainText('fake:rewrite')
+    await expect(steps.nth(0)).toContainText(
+      'Dotaz pro první hledání: Kdo vymění veřejné osvětlení?',
+    )
 
     const search = steps.nth(1)
     await expect(search).toContainText('Hledání: „Kdo vymění veřejné osvětlení?“')
@@ -149,14 +153,70 @@ test.describe('Ladění chatu', () => {
     await passage.locator('summary').click()
     await expect(passage).toContainText('výměnu veřejného osvětlení v ulici Zahradní')
 
-    await expect(steps.nth(2)).toContainText('Krok 2: volání modelu')
+    await expect(steps.nth(2)).toContainText('Krok 1: volání modelu')
+    await expect(steps.nth(2)).toContainText('fake:chat')
     await expect(steps.nth(2)).toContainText('Elektro Haná')
+    await expect(steps.nth(2)).not.toContainText('Model žádá hledání')
     await expect(trace).toContainText('Odpověď návštěvníkovi')
 
     await trace.getByText('Nastavení a zadání, se kterým otázka běžela').click()
-    await expect(trace.locator('.trace-setup')).toContainText('maxSearches')
-    await expect(trace.locator('.trace-setup')).toContainText('fake:decision')
-    await expect(trace.locator('.trace-setup')).toContainText('hledej_v_archivu')
+    const setup = trace.locator('.trace-setup')
+    await expect(setup).toContainText('maxSearches')
+    await expect(setup).toContainText('fake:decision')
+    await expect(setup).toContainText('fake:rewrite')
+    await expect(setup).toContainText('hledej_v_archivu')
+    // The glossary goes to both: the rewrite, and the answer that may search again.
+    const rewriteText = setup.locator('h4', { hasText: 'Zadání pro přeformulování otázky' })
+    await expect(rewriteText.locator('+ p')).toContainText('Skill: Glosář archivu')
+    await expect(rewriteText.locator('+ p')).toContainText('Skill: Přeformulování otázky')
+    const answerText = setup.locator('h4', { hasText: 'Zadání pro odpověď' })
+    await expect(answerText.locator('+ p')).toContainText(
+      'Úřad píše o věcech jinými slovy než návštěvník',
+    )
+  })
+
+  test('Výpočet je v postupu otázky se skriptem, parametry a výsledkem', async ({ page }) => {
+    await signIn(page)
+    await openAdminPage(page, 'Ladění chatu')
+    await tryQuestion(page, SUM)
+
+    // The rewrite and the first search, a step that asks for the calculation, the calculation, the answer.
+    const trace = questionTraces(page).first()
+    const steps = trace.locator('.trace-step')
+    await expect(steps).toHaveCount(5)
+    await expect(steps.nth(2)).toContainText('Krok 1: volání modelu')
+    await expect(steps.nth(2)).toContainText('Model žádá výpočet: 1×')
+    const calculation = steps.nth(3)
+    await expect(calculation).toContainText('Výpočet')
+    await expect(calculation).toContainText('parametry.castky.reduce')
+    await expect(calculation.locator('pre').nth(1)).toContainText('870000')
+    await expect(calculation.locator('pre').nth(1)).toContainText('240000')
+    await expect(calculation.locator('pre').nth(2)).toHaveText('1110000')
+    await expect(calculation).toContainText('započítaný výpočet')
+    await expect(steps.nth(4)).toContainText('Krok 2: volání modelu')
+    await expect(steps.nth(4)).toContainText('Celkem 1 110 000 Kč')
+    // The first call has nothing to read from the cache; the next one sends the same start again.
+    await expect(steps.nth(2)).toContainText('1 000 tokenů dovnitř, 100 ven')
+    await expect(steps.nth(4)).toContainText('1 000 tokenů dovnitř, z toho 800 z cache, 100 ven')
+
+    await trace.getByText('Nastavení a zadání, se kterým otázka běžela').click()
+    await expect(trace.locator('.trace-setup')).toContainText('maxCalculations')
+    await expect(trace.locator('.trace-setup')).toContainText('maxErroredRuns')
+    await expect(trace.locator('.trace-setup')).toContainText('spocitej')
+  })
+
+  test('Skript s chybou se do výpočtů nezapočítá a model ho opraví', async ({ page }) => {
+    await signIn(page)
+    await openAdminPage(page, 'Ladění chatu')
+    await tryQuestion(page, `${SUM} chybny skript`)
+
+    const calculations = questionTraces(page).first().locator('.trace-step--calculation')
+    await expect(calculations).toHaveCount(2)
+    await expect(calculations.nth(0)).toContainText('Chyba skriptu: SyntaxError')
+    await expect(calculations.nth(0)).toContainText('nezapočítaný výpočet')
+    await expect(calculations.nth(1).locator('pre').nth(2)).toHaveText('1110000')
+    await expect(calculations.nth(1)).toContainText('započítaný výpočet')
+    await expect(calculations.nth(1)).not.toContainText('nezapočítaný')
   })
 
   test('Otázka návštěvníka je v ladění a její cena v nákladech', async ({ page }) => {
@@ -221,6 +281,61 @@ test.describe('Ladění chatu', () => {
 
     await openQuestion(page, FIRST)
     await expect(historyBlock(page, FIRST)).toContainText('Model nedostal žádnou historii')
+  })
+
+  test('Dlouhý rozhovor se shrne a další otázky stojí na shrnutí', async ({ page }) => {
+    // The fake chat model reports 90 000 input tokens for this question, past the limit of 80 000.
+    const long = `${FIRST} dlouhy rozhovor`
+    await page.goto('/')
+    await visitorAsks(page, long, 'Kolik?', 'A kdy?')
+
+    await signIn(page)
+    await openAdminPage(page, 'Ladění chatu')
+    await page.getByRole('button', { name: `Otevřít rozhovor: ${long}` }).click()
+
+    await openQuestion(page, 'Kolik?')
+    const summary = questionTrace(page, 'Kolik?').locator('.trace-step').first()
+    await expect(summary).toContainText('Shrnutí rozhovoru')
+    await expect(summary).toContainText('fake:summary')
+    await expect(summary).toContainText('shrnuto otázek: 1')
+    await expect(summary).toContainText(`Návštěvník se ptal: ${long}`)
+    const turns = historyBlock(page, 'Kolik?').locator('.trace-history li')
+    await expect(turns).toHaveCount(1)
+    await expect(turns.first()).toContainText('Shrnutí dřívější části rozhovoru:')
+
+    // The next question starts from the summary and the question after it; it sums up nothing.
+    await openQuestion(page, 'A kdy?')
+    await expect(questionTrace(page, 'A kdy?')).not.toContainText('Shrnutí rozhovoru')
+    const later = historyBlock(page, 'A kdy?').locator('.trace-history li')
+    await expect(later).toHaveCount(3)
+    await expect(later.nth(0)).toContainText('Shrnutí dřívější části rozhovoru:')
+    await expect(later.nth(1)).toContainText('Kolik?')
+  })
+
+  test('Navazující otázka dostane úryvky dřívější otázky a čísluje úryvky dál', async ({
+    page,
+  }) => {
+    await page.goto('/')
+    await visitorAsks(page, FIRST, 'Kolik?')
+    // The visitor sees the sources of each answer numbered from one, whatever the model cited.
+    const answers = page
+      .getByRole('complementary', { name: 'Chat nad archivem' })
+      .locator('.chat-message--archive')
+    await expect(answers.last()).toContainText('[1]')
+
+    await signIn(page)
+    await openAdminPage(page, 'Ladění chatu')
+    await page.getByRole('button', { name: `Otevřít rozhovor: ${FIRST}` }).click()
+    await openQuestion(page, 'Kolik?')
+    const followUp = questionTrace(page, 'Kolik?')
+    await followUp.getByText('Nastavení a zadání, se kterým otázka běžela').click()
+    const kept = followUp.locator('.trace-setup tr', { hasText: 'historyPassages' }).locator('td')
+    const count = Number(await kept.textContent())
+    expect(count).toBeGreaterThan(0)
+
+    // The numbers run on: the first passage of the follow-up comes after those of the question before.
+    const search = followUp.locator('.trace-step').filter({ hasText: 'Hledání: „Kolik?“' })
+    await expect(search.locator('.trace-passages li').first()).toContainText(`[${count + 1}]`)
   })
 
   test('Správce pokračuje v rozhovoru zkušební otázkou', async ({ page }) => {

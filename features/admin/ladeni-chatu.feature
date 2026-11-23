@@ -1,7 +1,7 @@
 Feature: Ladění chatu
   Správce vidí otázky z chatu po rozhovorech. U každé otázky vidí celý postup: historii, kterou
   model dostal, volání modelu, hledání v obou větvích, váhy větví, skóre rerankeru, úryvky pro
-  model a konečnou odpověď. Může položit zkušební otázku, a to i do otevřeného rozhovoru.
+  model, výpočty a konečnou odpověď. Může položit zkušební otázku, a to i do otevřeného rozhovoru.
   Návštěvník může každou odpověď ohodnotit. Správce hodnocení vidí u otázky a rozhovory podle něj filtruje.
 
   Scenario: Bez přihlášení není postup otázek vidět
@@ -12,13 +12,30 @@ Feature: Ladění chatu
     Given správce je na stránce "Ladění chatu" a nikdo se zatím nezeptal
     When položí zkušební otázku "Kdo vymění veřejné osvětlení?"
     Then otevře se nový rozhovor a záznam otázky ukazuje 1 hledání
-    And krok 1 je volání modelu, který žádá hledání
+    And první je přeformulování otázky modelem "fake:rewrite" s dotazem "Kdo vymění veřejné osvětlení?"
     And hledání ukazuje větev slov (BM25) se skóre a větev významu (embedding) se vzdáleností
     And hledání ukazuje váhy větví s důvodem a tabulku rerankeru se skóre každého úryvku
     And porovnání ukazuje úryvky, které by model dostal bez rozhodovacího modelu, se skóre rerankeru
     And pořadí po rerankeru ukazuje úryvek "[1] Zápis z 9. zasedání zastupitelstva", strana 2, s textem
+    And po hledání je krok 1, volání modelu s odpovědí
+    And nastavení ukazuje čísla chatu, model pro přeformulování a obě zadání
+    And zadání pro přeformulování i zadání pro odpověď obsahují "Glosář archivu" o slovech úřadu
+
+  Scenario: Výpočet je v postupu otázky se skriptem, parametry a výsledkem
+    Given správce je na stránce "Ladění chatu"
+    When položí zkušební otázku "Kolik obec dá celkem za osvětlení a dotace spolkům?"
+    Then po prvním hledání je krok 1, volání modelu, který žádá 1 výpočet
+    And po něm je výpočet se skriptem, s parametry 870000 a 240000 a s výsledkem 1110000
+    And výpočet je označený "započítaný výpočet"
     And krok 2 je volání modelu s odpovědí
-    And nastavení ukazuje čísla chatu a zadání pro model
+    And krok 1 neukazuje žádné tokeny z cache a krok 2 ukazuje, kolik vstupních tokenů přišlo z cache
+    And nastavení ukazuje maxCalculations a maxErroredRuns a zadání pro model jmenuje nástroj "spocitej"
+
+  Scenario: Skript s chybou se do výpočtů nezapočítá a model ho opraví
+    Given správce je na stránce "Ladění chatu"
+    When položí zkušební otázku "Kolik obec dá celkem za osvětlení a dotace spolkům? chybny skript"
+    Then první výpočet ukazuje "Chyba skriptu: SyntaxError" a je označený "nezapočítaný výpočet"
+    And druhý výpočet má výsledek 1110000 a je označený "započítaný výpočet"
 
   Scenario: Otázka návštěvníka je v ladění a její cena v nákladech
     Given návštěvník se v chatu zeptal "Kdo vymění veřejné osvětlení?" a potom "Kolik?"
@@ -42,6 +59,21 @@ Feature: Ladění chatu
     When správce otevře rozhovor a záznam otázky "Kolik?"
     Then blok "Historie pro model" ukazuje otázku návštěvníka a odpověď archivu s firmou "Elektro Haná"
     And záznam první otázky říká, že model žádnou historii nedostal
+
+  Scenario: Dlouhý rozhovor se shrne a další otázky stojí na shrnutí
+    Given návštěvník se v chatu zeptal "Kdo vymění veřejné osvětlení? dlouhy rozhovor", na kterou model dostal přes 80 000 tokenů
+    And potom se zeptal "Kolik?" a "A kdy?"
+    When správce otevře rozhovor
+    Then záznam otázky "Kolik?" začíná shrnutím rozhovoru modelem "fake:summary", které shrnuje 1 otázku
+    And historie pro model u otázky "Kolik?" je jen to shrnutí
+    And otázka "A kdy?" už nic neshrnuje a její historie je shrnutí a otázka "Kolik?" s odpovědí
+
+  Scenario: Navazující otázka dostane úryvky dřívější otázky a čísluje úryvky dál
+    Given návštěvník se v chatu zeptal "Kdo vymění veřejné osvětlení?" a potom "Kolik?"
+    When správce otevře rozhovor a záznam otázky "Kolik?"
+    Then nastavení otázky "Kolik?" ukazuje, kolik úryvků dřívější otázky model dostal v historii
+    And úryvky otázky "Kolik?" mají čísla až za úryvky dřívější otázky
+    And návštěvník u odpovědi na "Kolik?" vidí zdroje očíslované od 1
 
   Scenario: Správce pokračuje v rozhovoru zkušební otázkou
     Given správce položil zkušební otázku "Kdo vymění veřejné osvětlení?" a rozhovor je otevřený

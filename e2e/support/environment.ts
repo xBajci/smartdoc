@@ -39,6 +39,10 @@ export function serverEnvironment(port: number): Record<string, string> {
     // 1000 tokens in and 100 out per call: $0.0012 for the first model, $0.0024 for the second.
     // The chat answers by quoting the best piece; vectors are made from the words of a text.
     AI_CHAT_MODEL: 'fake:chat',
+    // Searches with the question as it is.
+    AI_REWRITE_MODEL: 'fake:rewrite',
+    // Lists the questions it sums up.
+    AI_SUMMARY_MODEL: 'fake:summary',
     AI_EMBEDDING_MODEL: 'fake:embedding',
     // Weights from whether the query has a digit; scores from the words a piece shares with it.
     AI_DECISION_MODEL: 'fake:decision',
@@ -50,6 +54,6 @@ export function serverEnvironment(port: number): Record<string, string> {
     CHAT_DAILY_LIMIT: '50',
     CHAT_HOURLY_LIMIT: '40',
     AI_PRICES:
-      '{"fake:test":[1,2],"fake:description":[2,4],"fake:chat":[1,2],"fake:embedding":[1,0],"fake:decision":[1,0]}',
+      '{"fake:test":[1,2],"fake:description":[2,4],"fake:chat":[1,2],"fake:rewrite":[1,2],"fake:summary":[1,2],"fake:embedding":[1,0],"fake:decision":[1,0]}',
   }
 }
