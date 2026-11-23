@@ -135,6 +135,7 @@ export const aiUsage = pgTable(
         'chat',
         'weigh',
         'rerank',
+        'glossary',
       ],
     }).notNull(),
     /** The place the call was made at (see `SkillUse`); older rows hold the key of one skill here. */

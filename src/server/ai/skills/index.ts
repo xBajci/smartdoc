@@ -1,3 +1,4 @@
+import chatGlosar from './chat/glosar.md?raw'
 import chatHledani from './chat/hledani.md?raw'
 import chatHodnoceniUryvku from './chat/hodnoceni-uryvku.md?raw'
 import chatOdpovedACitace from './chat/odpoved-a-citace.md?raw'
@@ -22,6 +23,7 @@ export const SKILLS: readonly SkillDefinition[] = [
   parseSkillFile('zpracovani/kategorie', zpracovaniKategorie),
   parseSkillFile('chat/system', chatSystem),
   parseSkillFile('chat/hledani', chatHledani),
+  parseSkillFile('chat/glosar', chatGlosar),
   parseSkillFile('chat/pocitani', chatPocitani),
   parseSkillFile('chat/odpoved-a-citace', chatOdpovedACitace),
   parseSkillFile('chat/hodnoceni-uryvku', chatHodnoceniUryvku),

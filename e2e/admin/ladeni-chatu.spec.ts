@@ -162,6 +162,8 @@ test.describe('Ladění chatu', () => {
     await expect(trace.locator('.trace-setup')).toContainText('maxSearches')
     await expect(trace.locator('.trace-setup')).toContainText('fake:decision')
     await expect(trace.locator('.trace-setup')).toContainText('hledej_v_archivu')
+    await expect(trace.locator('.trace-setup')).toContainText('Skill: Glosář archivu')
+    await expect(trace.locator('.trace-setup')).toContainText('OZV: obecně závazná vyhláška')
   })
 
   test('Výpočet je v postupu otázky se skriptem, parametry a výsledkem', async ({ page }) => {

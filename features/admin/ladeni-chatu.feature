@@ -20,6 +20,7 @@ Feature: Ladění chatu
     And krok 2 je volání modelu s odpovědí
     And krok 1 neukazuje žádné tokeny z cache a krok 2 ukazuje, kolik vstupních tokenů přišlo z cache
     And nastavení ukazuje čísla chatu a zadání pro model
+    And zadání pro model obsahuje "Glosář archivu" se zkratkami úřadu
 
   Scenario: Výpočet je v postupu otázky se skriptem, parametry a výsledkem
     Given správce je na stránce "Ladění chatu"

@@ -6,7 +6,7 @@ import type { EmbeddingModel, LanguageModel } from 'ai'
  * The one place that knows AI providers. A model is named in `.env` as
  * `provider:model`, so a model is changed without touching code.
  */
-export type ModelRole = 'ocr' | 'description' | 'chat' | 'embedding' | 'decision'
+export type ModelRole = 'ocr' | 'description' | 'chat' | 'embedding' | 'decision' | 'glossary'
 
 const PROVIDERS = ['anthropic', 'openai', 'typesafe', 'fake'] as const
 export type ModelProvider = (typeof PROVIDERS)[number]
@@ -28,6 +28,8 @@ const SETTINGS: Record<ModelRole, { variable: string; fallback: string }> = {
   embedding: { variable: 'AI_EMBEDDING_MODEL', fallback: 'openai:text-embedding-3-small' },
   // Weighs the two branches of the chat search and scores the found pieces; `off` switches both off.
   decision: { variable: 'AI_DECISION_MODEL', fallback: 'typesafe:jev-latest' },
+  // Writes the glossary of the chat from all documents at once. Runs only on request, so it may be the strongest.
+  glossary: { variable: 'AI_GLOSSARY_MODEL', fallback: 'openai:gpt-6.1-sol' },
 }
 
 const KEY_VARIABLES = {

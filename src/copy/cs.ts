@@ -405,6 +405,7 @@ export const cs = {
       chat: 'Chat: volání modelu',
       weigh: 'Váhy větví',
       rerank: 'Reranker',
+      glossary: 'Glosář chatu',
     },
   },
 

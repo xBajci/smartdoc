@@ -197,6 +197,7 @@ export interface SessionCall {
     | 'chat'
     | 'weigh'
     | 'rerank'
+    | 'glossary'
   model: string
   /** The place the call was made at; in older records the key of one skill. */
   skillKey: string | null

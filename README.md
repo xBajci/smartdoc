@@ -151,6 +151,12 @@ Podrobnosti jsou v návrhu chatu.
   výsledek se zdroji, skript je v ladění. Kdy a jak počítat říká skill `chat/pocitani`.
 - **Ladění** (`/sprava/chat`): u každé otázky celý postup. Volání modelu, obě větve hledání se skóre,
   váhy větví, skóre rerankeru, texty úryvků, výpočty, odpověď, cena. Správce tam může položit zkušební otázku.
+- **Glosář** (skill `chat/glosar`). Říká modelu, o čem dokumenty archivu jsou a jakými slovy úřad píše:
+  místní názvy, zkratky, slova návštěvníka a slova úřadu. Text píše model ze všech dokumentů najednou
+  (název, kategorie, rok, krátký popis): `pnpm glossary:build`, model `AI_GLOSSARY_MODEL`. Je to jednorázový
+  výtah, ne seznam všech dokumentů; znovu ho pusť, až dokumentů hodně přibude. Příkaz čte databázi z
+  `DATABASE_URL` a přepíše `src/server/ai/skills/chat/glosar.md`. Soubor zkontroluj a pošli do aplikace
+  přes `pnpm skills:push chat/glosar`. Nový klíč skillu musí být v aplikaci nasazený dřív než první push.
 - **Cache promptu.** Každý krok smyčky posílá modelu znovu zadání, nástroje a předchozí kroky. Poskytovatel
   ten začátek drží v cache a účtuje ho levněji: OpenAI sám (`promptCacheKey`), Anthropic po zapnutí
   `cacheControl`. Obojí nastavuje `src/server/chat/answerer.ts`. Ladění u každého volání ukazuje, kolik
