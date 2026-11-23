@@ -18,6 +18,13 @@ describe('parseSearchQuestions', () => {
     })
   })
 
+  it('joins an answer and a trap that are wrapped onto the next lines', () => {
+    expect(questions[2]?.answer).toBe(
+      'Dotace 51 000 Kč od Olomouckého kraje v roce 2023. Celkové výdaje 112 206 Kč, vlastní zdroje 61 206 Kč.',
+    )
+    expect(questions[0]?.trap).toBe('bez diakritiky. Rušit může vyhláška o pohybu psů (č. 1/2013).')
+  })
+
   it('joins a title that is wrapped onto the next line', () => {
     expect(questions[14]?.documents).toEqual([
       {
@@ -42,7 +49,13 @@ describe('parseSearchQuestions', () => {
   })
 
   it('stops at a document without a page', () => {
-    const broken = '### 1. A\n\n- **Otázka:** q\n- **Správné dokumenty:** Some title\n'
+    const broken =
+      '### 1. A\n\n- **Otázka:** q\n- **Odpověď:** a\n- **Past:** p\n- **Správné dokumenty:** Some title\n'
+    expect(() => parseSearchQuestions(broken)).toThrow('Question 1')
+  })
+
+  it('stops at a question without an answer', () => {
+    const broken = '### 1. A\n\n- **Otázka:** q\n- **Past:** p\n- **Správné dokumenty:** žádné\n'
     expect(() => parseSearchQuestions(broken)).toThrow('Question 1')
   })
 })

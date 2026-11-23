@@ -27,6 +27,8 @@
     "import:load": "tsx --env-file-if-exists=.env src/server/import/load-command.ts",
     "chat:index": "tsx --env-file-if-exists=.env src/server/chat/index-command.ts",
     "search:eval": "tsx --import ./scripts/raw-loader.mjs --env-file-if-exists=.env src/server/chat/search-eval-command.ts",
+    "eval:sync": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.eval src/server/chat/eval-sync-command.ts",
+    "eval:run": "tsx --import ./scripts/raw-loader.mjs --env-file-if-exists=.env --env-file-if-exists=.env.eval src/server/chat/eval-run-command.ts",
     "categories:assign": "tsx --import ./scripts/raw-loader.mjs --env-file-if-exists=.env src/server/categorize-command.ts",
     "admin:password": "tsx src/server/hash-password-command.ts"
   },
