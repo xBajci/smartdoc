@@ -4,6 +4,7 @@ import { closeDatabase } from '../../db/client'
 import { modelName } from '../ai/models'
 import { answerQuestion } from './chat-service'
 import { DATASET_NAME } from './eval-dataset'
+import { NO_HISTORY } from './history'
 import {
   datasetRecords,
   endRun,
@@ -51,7 +52,7 @@ await Promise.all(
       const answered = await answerQuestion({
         question,
         scope: { scope: 'archive', documentIds: [] },
-        history: [],
+        history: NO_HISTORY,
         settings,
         questionId: randomUUID(),
         sessionId: randomUUID(),

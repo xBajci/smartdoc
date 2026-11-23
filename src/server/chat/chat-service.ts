@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import type { ModelMessage } from 'ai'
 import { and, asc, count, desc, eq, gt, isNotNull, isNull, ne, sql, type SQL } from 'drizzle-orm'
 import type {
   ChatAnswer,
@@ -9,7 +10,6 @@ import type {
   ChatTrace,
   ChatTraceStep,
   ChatTraceSummary,
-  ChatTurn,
 } from '../../archive/types'
 import { getDatabase } from '../../db/client'
 import { aiUsage, chatTraces } from '../../db/schema'
@@ -21,7 +21,7 @@ import { getAnswerer } from './answerer'
 import { resolveCitations } from './citations'
 import { getDecider } from './decisions'
 import { getEmbedder } from './embedder'
-import { historyFromTraces } from './history'
+import { sessionHistory, type SessionHistory, NO_HISTORY } from './history'
 import { chatFixed, rewriteFixed } from './instructions'
 import { sendFeedback, traceQuestion, traceSearch, type Feedback } from './mlflow'
 import { hybridSearch, type SearchScope, type SearchStep } from './retrieval'
@@ -84,21 +84,27 @@ async function overLimit(asker: Asker): Promise<'hourly-limit' | 'daily-limit' |
 async function joinSession(
   sessionId: string | undefined,
   historyMessages: number,
-): Promise<{ sessionId: string; history: ChatTurn[] }> {
-  if (sessionId === undefined) return { sessionId: randomUUID(), history: [] }
+): Promise<{ sessionId: string; history: SessionHistory }> {
+  if (sessionId === undefined) return { sessionId: randomUUID(), history: NO_HISTORY }
   const earlier = await getDatabase()
-    .select({ question: chatTraces.question, answer: chatTraces.answer, error: chatTraces.error })
+    .select({
+      question: chatTraces.question,
+      answer: chatTraces.answer,
+      error: chatTraces.error,
+      steps: chatTraces.steps,
+      messages: chatTraces.messages,
+    })
     .from(chatTraces)
     .where(eq(chatTraces.sessionId, sessionId))
     .orderBy(asc(chatTraces.createdAt))
-  if (earlier.length === 0) return { sessionId: randomUUID(), history: [] }
-  return { sessionId, history: historyFromTraces(earlier, historyMessages) }
+  if (earlier.length === 0) return { sessionId: randomUUID(), history: NO_HISTORY }
+  return { sessionId, history: sessionHistory(earlier, historyMessages) }
 }
 
 export interface AnswerRequest {
   question: string
   scope: SearchScope
-  history: ChatTurn[]
+  history: SessionHistory
   settings: ChatSettings
   /** The id of the question, as `chat_traces` will know it. */
   questionId: string
@@ -109,6 +115,8 @@ export interface AnswerRequest {
 
 export interface AnsweredQuestion {
   answer: string
+  /** What the next question of the session sends again; `null` when no answer was made. */
+  messages: ModelMessage[] | null
   /** Why no answer was made; the steps until then are kept. */
   error: string | null
   steps: ChatTraceStep[]
@@ -137,13 +145,14 @@ export async function answerQuestion(request: AnswerRequest): Promise<AnsweredQu
   const rerankGuidance = instructionsFor(skills, 'chat-rerank')
   let embeddingModel = modelName('embedding')
 
-  /** Numbers of pieces, shared by all searches of the question. */
+  /** Numbers of pieces, shared by all searches of the question; they go on from the earlier questions. */
   const numbers = new Map<number, number>()
   const numberOf = (chunkId: number) => {
     const known = numbers.get(chunkId)
     if (known !== undefined) return known
-    numbers.set(chunkId, numbers.size + 1)
-    return numbers.size
+    const number = history.firstNumber + numbers.size
+    numbers.set(chunkId, number)
+    return number
   }
 
   const search = (query: string): Promise<SearchStep> =>
@@ -162,12 +171,13 @@ export async function answerQuestion(request: AnswerRequest): Promise<AnsweredQu
     )
 
   let answer = ''
+  let messages: ModelMessage[] | null = null
   let error: string | null = null
   let mlflowTraceId: string | null = null
   const rewriter = getRewriter()
   const answerer = getAnswerer()
   try {
-    answer = await traceQuestion(
+    const answered = await traceQuestion(
       {
         question,
         questionId: request.questionId,
@@ -179,7 +189,7 @@ export async function answerQuestion(request: AnswerRequest): Promise<AnsweredQu
         // the chat model starts with their passages and searches more only when it needs to.
         const rewrite = await rewriter({
           question,
-          history,
+          history: history.forRewrite,
           instructions: rewriteInstructions.text,
         })
         steps.push(rewrite)
@@ -188,7 +198,7 @@ export async function answerQuestion(request: AnswerRequest): Promise<AnsweredQu
         return answerer({
           question,
           instructions: answerInstructions.text,
-          history,
+          history: history.messages,
           settings,
           found,
           trace: (step) => steps.push(step),
@@ -197,12 +207,15 @@ export async function answerQuestion(request: AnswerRequest): Promise<AnsweredQu
       },
       (traceId) => (mlflowTraceId = traceId),
     )
+    answer = answered.text
+    messages = answered.messages
   } catch (caught) {
     console.error(`Chat question ${request.questionId} failed:`, caught)
     error = caught instanceof Error ? caught.message : String(caught)
   }
   return {
     answer,
+    messages,
     error,
     steps,
     mlflowTraceId,
@@ -231,6 +244,7 @@ export async function askArchive(input: ChatQuestion, asker: Asker): Promise<Cha
   const { sessionId, history } = await joinSession(input.sessionId, settings.historyMessages)
   const {
     answer,
+    messages,
     error,
     steps,
     mlflowTraceId,
@@ -251,7 +265,8 @@ export async function askArchive(input: ChatQuestion, asker: Asker): Promise<Cha
   const passages = steps.flatMap((step): ChatPassage[] =>
     step.kind === 'search' ? step.passages : [],
   )
-  const resolved = resolveCitations(answer, passages)
+  // The answer may cite a passage an earlier question found; the history gave the model those too.
+  const resolved = resolveCitations(answer, [...history.passages, ...passages])
 
   const usage = steps.flatMap((step): UsageCall[] => {
     if (step.kind === 'rewrite') {
@@ -343,14 +358,16 @@ export async function askArchive(input: ChatQuestion, asker: Asker): Promise<Cha
     id,
     sessionId,
     question: input.question,
-    history,
+    history: history.turns,
     answer: resolved.text,
     error,
     scope: input.scope,
     model: modelName('chat'),
     steps,
+    messages: error === null ? messages : null,
     setup: {
       ...settings,
+      historyPassages: history.passages.length,
       embeddingModel,
       decisionModel: decider === null ? 'off' : modelName('decision'),
       rewriteModel: modelName('rewrite'),

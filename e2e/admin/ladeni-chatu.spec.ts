@@ -283,6 +283,32 @@ test.describe('Ladění chatu', () => {
     await expect(historyBlock(page, FIRST)).toContainText('Model nedostal žádnou historii')
   })
 
+  test('Navazující otázka dostane úryvky dřívější otázky a čísluje úryvky dál', async ({
+    page,
+  }) => {
+    await page.goto('/')
+    await visitorAsks(page, FIRST, 'Kolik?')
+    // The visitor sees the sources of each answer numbered from one, whatever the model cited.
+    const answers = page
+      .getByRole('complementary', { name: 'Chat nad archivem' })
+      .locator('.chat-message--archive')
+    await expect(answers.last()).toContainText('[1]')
+
+    await signIn(page)
+    await openAdminPage(page, 'Ladění chatu')
+    await page.getByRole('button', { name: `Otevřít rozhovor: ${FIRST}` }).click()
+    await openQuestion(page, 'Kolik?')
+    const followUp = questionTrace(page, 'Kolik?')
+    await followUp.getByText('Nastavení a zadání, se kterým otázka běžela').click()
+    const kept = followUp.locator('.trace-setup tr', { hasText: 'historyPassages' }).locator('td')
+    const count = Number(await kept.textContent())
+    expect(count).toBeGreaterThan(0)
+
+    // The numbers run on: the first passage of the follow-up comes after those of the question before.
+    const search = followUp.locator('.trace-step').filter({ hasText: 'Hledání: „Kolik?“' })
+    await expect(search.locator('.trace-passages li').first()).toContainText(`[${count + 1}]`)
+  })
+
   test('Správce pokračuje v rozhovoru zkušební otázkou', async ({ page }) => {
     await signIn(page)
     await openAdminPage(page, 'Ladění chatu')

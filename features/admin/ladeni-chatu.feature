@@ -60,6 +60,13 @@ Feature: Ladění chatu
     Then blok "Historie pro model" ukazuje otázku návštěvníka a odpověď archivu s firmou "Elektro Haná"
     And záznam první otázky říká, že model žádnou historii nedostal
 
+  Scenario: Navazující otázka dostane úryvky dřívější otázky a čísluje úryvky dál
+    Given návštěvník se v chatu zeptal "Kdo vymění veřejné osvětlení?" a potom "Kolik?"
+    When správce otevře rozhovor a záznam otázky "Kolik?"
+    Then nastavení otázky "Kolik?" ukazuje, kolik úryvků dřívější otázky model dostal v historii
+    And úryvky otázky "Kolik?" mají čísla až za úryvky dřívější otázky
+    And návštěvník u odpovědi na "Kolik?" vidí zdroje očíslované od 1
+
   Scenario: Správce pokračuje v rozhovoru zkušební otázkou
     Given správce položil zkušební otázku "Kdo vymění veřejné osvětlení?" a rozhovor je otevřený
     When položí zkušební otázku "Kolik?"

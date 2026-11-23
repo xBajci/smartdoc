@@ -47,6 +47,8 @@ let providerOptions: unknown[]
 let roles: string[][]
 /** What each tool told the model, in the order the model got it. */
 let results: string[]
+/** The messages the answer gave back for the next question. */
+let kept: { role: string }[]
 let steps: ChatTraceStep[]
 
 async function answer(replies: Reply[], limits: Partial<ReturnType<typeof chatSettings>> = {}) {
@@ -87,7 +89,7 @@ async function answer(replies: Reply[], limits: Partial<ReturnType<typeof chatSe
       }
     },
   })
-  return getAnswerer()({
+  const answered = await getAnswerer()({
     question: 'Kolik obec dá celkem?',
     instructions: 'Jsi asistent archivu.',
     history: [],
@@ -102,6 +104,8 @@ async function answer(replies: Reply[], limits: Partial<ReturnType<typeof chatSe
     search: async (query) => found(query),
     trace: (step) => steps.push(step),
   })
+  kept = answered.messages
+  return answered.text
 }
 
 /** A search that finds the one passage with both amounts. */
@@ -135,6 +139,7 @@ describe('the chat model and its calculations', () => {
     providerOptions = []
     roles = []
     results = []
+    kept = []
     steps = []
     usage = { ...usage, inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 } }
     delete process.env.AI_PRICES
@@ -177,6 +182,19 @@ describe('the chat model and its calculations', () => {
     expect(calculations().map((step) => step.error === null)).toEqual([false, true, true])
     expect(calculations()[0]?.error).toMatch(/^SyntaxError: /)
     expect(text).toBe('Celkem 1 110 000 Kč [1].')
+  })
+
+  it('gives back the question, the first search and all it wrote, for the next question', async () => {
+    await answer([[calculate(GOOD)], 'Celkem 1 110 000 Kč [1].'])
+    // The question, the first search (call and result), the calculation (call and result), the answer.
+    expect(kept.map((message) => message.role)).toEqual([
+      'user',
+      'assistant',
+      'tool',
+      'assistant',
+      'tool',
+      'assistant',
+    ])
   })
 
   it('never changes the tools; a used-up tool says so when called', async () => {

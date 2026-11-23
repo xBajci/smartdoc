@@ -137,6 +137,11 @@ Podrobnosti jsou v návrhu chatu.
   smí vrátit žádný, když odpověď už je v rozhovoru. Když selže, hledá se otázka sama. Hledání spustí kód a
   chatovací model ho dostane jako své vlastní volání nástroje. Nic se tím nevynucuje, takže to funguje u
   OpenAI i u Anthropicu. První hledání se počítá do `CHAT_MAX_SEARCHES` jako jedno.
+- **Historie rozhovoru.** Ke každé otázce se uloží zprávy modelu (`chat_traces.messages`): otázka, první hledání,
+  volání nástrojů, úryvky a odpověď. Další otázka je pošle znovu beze změny, takže model zná i úryvky dřívějších
+  otázek a poskytovatel začátek promptu vezme z cache. Čísla úryvků běží přes celý rozhovor, takže odpověď smí
+  citovat i úryvek dřívější otázky; návštěvník vidí zdroje každé odpovědi očíslované od jedné. Model pro
+  přeformulování nástroje nemá, proto dostane historii jako text: otázku, nalezené úryvky a odpověď.
 - **Limity smyčky.** Chatovací model dostává vždy oba nástroje, i když je limit jednoho vyčerpaný; měnit seznam
   nástrojů by zahodilo cache. Nástroj s vyčerpaným limitem modelu odpoví, že už nesmí, a ladění odmítnuté hledání
   ukáže. Když nezbývá nic, nebo v posledním povoleném kroku, smyčka pošle `toolChoice: 'none'` a model musí odpovědět.

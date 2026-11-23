@@ -1,9 +1,9 @@
+import { randomUUID } from 'node:crypto'
 import { generateText, stepCountIs, tool, type ModelMessage } from 'ai'
 import { z } from 'zod'
-import type { ChatPassage, ChatTraceStep, ChatTurn } from '../../archive/types'
+import type { ChatPassage, ChatTraceStep } from '../../archive/types'
 import { languageModel, modelName, modelSetting } from '../ai/models'
 import { costOfCall } from '../ai/prices'
-import { turnsAsMessages } from './history'
 import {
   CALCULATION_TOOL,
   CALCULATIONS_USED_UP,
@@ -22,7 +22,8 @@ export interface AnswerInput {
   question: string
   /** The system prompt and the skills of the chat, put together. */
   instructions: string
-  history: readonly ChatTurn[]
+  /** The earlier questions of the session as messages of the model (see `sessionHistory`). */
+  history: readonly ModelMessage[]
   settings: ChatSettings
   /**
    * The first search, made before the model is called with the queries of the
@@ -35,8 +36,14 @@ export interface AnswerInput {
   trace: (step: ChatTraceStep) => void
 }
 
+export interface Answered {
+  text: string
+  /** The question, the first search and everything the model wrote; the next question sends them again. */
+  messages: ModelMessage[]
+}
+
 /** Answers a question from the archive. The rest of the chat knows this function only, never a model. */
-export type Answerer = (input: AnswerInput) => Promise<string>
+export type Answerer = (input: AnswerInput) => Promise<Answered>
 
 const aiAnswerer: Answerer = async ({
   question,
@@ -63,7 +70,9 @@ const aiAnswerer: Answerer = async ({
     settings.maxSearches + settings.maxCalculations + settings.maxErroredRuns + 1 + REFUSAL_MARGIN
 
   try {
-    const { text } = await generateText({
+    const asked: ModelMessage = { role: 'user', content: question }
+    const first = firstSearchMessages(found)
+    const { text, responseMessages } = await generateText({
       model: languageModel('chat'),
       telemetry: chatTelemetry(),
       // Every step sends the instructions, the tools and the steps before it again. The provider
@@ -74,11 +83,7 @@ const aiAnswerer: Answerer = async ({
         anthropic: { cacheControl: { type: 'ephemeral' } },
       },
       instructions,
-      messages: [
-        ...turnsAsMessages(history),
-        { role: 'user', content: question },
-        ...firstSearchMessages(found),
-      ],
+      messages: [...history, asked, ...first],
       tools: {
         [SEARCH_TOOL]: tool({
           description:
@@ -145,7 +150,8 @@ const aiAnswerer: Answerer = async ({
         refused = []
       },
     })
-    return text
+    // All steps: `response` holds only the last one.
+    return { text, messages: [asked, ...first, ...responseMessages] }
   } finally {
     // Searches and calculations of a step that failed before it ended.
     for (const item of searched) trace(item)
@@ -170,7 +176,9 @@ function searchResult(step: SearchStep): string {
  */
 function firstSearchMessages(found: readonly SearchStep[]): ModelMessage[] {
   if (found.length === 0) return []
-  const calls = found.map((step, index) => ({ id: `call_prvni_hledani_${index + 1}`, step }))
+  // The ids must differ from those of earlier questions, which the history sends again.
+  const turn = randomUUID().slice(0, 8)
+  const calls = found.map((step, index) => ({ id: `call_${turn}_${index + 1}`, step }))
   return [
     {
       role: 'assistant',
@@ -326,9 +334,21 @@ const fakeAnswerer: Answerer = async ({ question, history, settings, found, sear
   if (question.includes('selhani')) throw new Error('The fake chat model was asked to fail.')
 
   let passages = found.flatMap((step) => step.passages)
-  const previous = history.filter((turn) => turn.role === 'visitor').at(-1)
+  const done = (text: string): Answered => ({
+    text,
+    messages: [
+      { role: 'user', content: question },
+      ...firstSearchMessages(found),
+      { role: 'assistant', content: text },
+    ],
+  })
+  const previous = history
+    .flatMap((message) =>
+      message.role === 'user' && typeof message.content === 'string' ? [message.content] : [],
+    )
+    .at(-1)
   if (byWords(passages).length === 0 && previous !== undefined) {
-    const wider = `${previous.text} ${question}`
+    const wider = `${previous} ${question}`
     call('', [wider])
     const widened = await search(wider)
     trace(widened)
@@ -356,7 +376,7 @@ const fakeAnswerer: Answerer = async ({ question, history, settings, found, sear
     }
     const answer = `Celkem ${Number(result).toLocaleString('cs-CZ').replaceAll(/\s/g, ' ')} Kč ${counted.map((passage) => `[${passage.number}]`).join('')}`
     call(answer, [])
-    return answer
+    return done(answer)
   }
 
   const best = byWords(passages)[0]
@@ -365,7 +385,7 @@ const fakeAnswerer: Answerer = async ({ question, history, settings, found, sear
       ? 'V archivu jsem k tomu nic nenašel. Zkuste otázku napsat jinak.'
       : `Podle dokumentu „${best.documentTitle}“: ${best.text.slice(0, FAKE_QUOTE_CHARACTERS)} [${best.number}]`
   call(answer, [])
-  return answer
+  return done(answer)
 }
 
 export function getAnswerer(): Answerer {

@@ -1,3 +1,4 @@
+import type { ModelMessage } from 'ai'
 import { sql, type SQL } from 'drizzle-orm'
 import {
   bigint,
@@ -245,6 +246,13 @@ export const chatTraces = pgTable(
     model: text('model').notNull(),
     /** Model calls and searches in the order they happened. */
     steps: jsonb('steps').$type<ChatTraceStep[]>().notNull(),
+    /**
+     * The question, the first search and everything the chat model wrote, as
+     * messages of the model. Later questions of the session send them again
+     * unchanged, so the provider can serve them from its cache. `null` in
+     * traces older than this and in a question that failed.
+     */
+    messages: jsonb('messages').$type<ModelMessage[]>(),
     /** The instructions and the numbers that were in force. */
     setup: jsonb('setup').$type<Record<string, string | number>>().notNull(),
     durationMs: integer('duration_ms').notNull().default(0),
