@@ -1,7 +1,7 @@
 ---
 title: Glosář archivu
 purpose: O čem dokumenty archivu jsou a jakými slovy o věcech píše úřad. Nový výtah z dokumentů udělá pnpm glossary:build.
-uses: chat-answer
+uses: chat-rewrite, chat-answer
 ---
 Úřad píše o věcech jinými slovy než návštěvník. Při hledání použij slova úřadu z tohoto glosáře.
 

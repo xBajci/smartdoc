@@ -1,8 +1,9 @@
-import { generateText, stepCountIs, tool } from 'ai'
+import { generateText, stepCountIs, tool, type ModelMessage } from 'ai'
 import { z } from 'zod'
 import type { ChatPassage, ChatTraceStep, ChatTurn } from '../../archive/types'
 import { languageModel, modelName, modelSetting } from '../ai/models'
 import { costOfCall } from '../ai/prices'
+import { turnsAsMessages } from './history'
 import {
   CALCULATION_TOOL,
   CALCULATIONS_USED_UP,
@@ -22,6 +23,11 @@ export interface AnswerInput {
   instructions: string
   history: readonly ChatTurn[]
   settings: ChatSettings
+  /**
+   * The first search, made before the model is called with the queries of the
+   * rewrite; already in the trace. Empty when the conversation holds the answer.
+   */
+  found: readonly SearchStep[]
   /** Runs one hybrid search. */
   search: (query: string) => Promise<SearchStep>
   /** Receives every model call and every search as it ends, so a failed run still leaves a trace. */
@@ -36,6 +42,7 @@ const aiAnswerer: Answerer = async ({
   instructions,
   history,
   settings,
+  found,
   search,
   trace,
 }) => {
@@ -44,8 +51,8 @@ const aiAnswerer: Answerer = async ({
   let searched: SearchStep[] = []
   let calculated: CalculationStep[] = []
   let stepStarted = Date.now()
-  /** Steps that searched; a step may send several searches at once. */
-  let searchSteps = 0
+  /** Steps that searched; a step may send several searches at once. The first search counts as one. */
+  let searchSteps = found.length === 0 ? 0 : 1
   const calculations = calculationBudget(settings)
 
   try {
@@ -61,11 +68,9 @@ const aiAnswerer: Answerer = async ({
       },
       instructions,
       messages: [
-        ...history.map((turn) => ({
-          role: turn.role === 'visitor' ? ('user' as const) : ('assistant' as const),
-          content: turn.text,
-        })),
-        { role: 'user' as const, content: question },
+        ...turnsAsMessages(history),
+        { role: 'user', content: question },
+        ...firstSearchMessages(found),
       ],
       tools: {
         [SEARCH_TOOL]: tool({
@@ -79,7 +84,7 @@ const aiAnswerer: Answerer = async ({
           execute: async ({ dotaz }) => {
             const step = await search(dotaz)
             searched.push(step)
-            return step.passages.length === 0 ? NOTHING_FOUND : passagesForModel(step.passages)
+            return searchResult(step)
           },
         }),
         [CALCULATION_TOOL]: calculationTool(calculations, (step) => calculated.push(step)),
@@ -91,10 +96,8 @@ const aiAnswerer: Answerer = async ({
       // The list of tools is part of the start of the prompt that the provider caches, and a
       // changed list makes the cache useless. So the list stays whole wherever it can, and the
       // tool choice steers the model instead.
-      prepareStep: ({ stepNumber }) => {
+      prepareStep: () => {
         stepStarted = Date.now()
-        // The first step must search, so a calculation always has passages to start from.
-        if (stepNumber === 0) return { toolChoice: { type: 'tool', toolName: SEARCH_TOOL } }
         const canSearch = searchSteps < settings.maxSearches
         const canCalculate = calculations.allowed()
         if (canSearch && canCalculate) return {}
@@ -140,6 +143,41 @@ const aiAnswerer: Answerer = async ({
 }
 
 type CalculationStep = Extract<ChatTraceStep, { kind: 'calculation' }>
+
+/** What the model is told a search found. */
+function searchResult(step: SearchStep): string {
+  return step.passages.length === 0 ? NOTHING_FOUND : passagesForModel(step.passages)
+}
+
+/**
+ * The first search as if the model had asked for it in one step: one call of
+ * the search tool for each query, then what each found. So the model sees the
+ * passages where it would see its own searches.
+ */
+function firstSearchMessages(found: readonly SearchStep[]): ModelMessage[] {
+  if (found.length === 0) return []
+  const calls = found.map((step, index) => ({ id: `call_prvni_hledani_${index + 1}`, step }))
+  return [
+    {
+      role: 'assistant',
+      content: calls.map(({ id, step }) => ({
+        type: 'tool-call' as const,
+        toolCallId: id,
+        toolName: SEARCH_TOOL,
+        input: { dotaz: step.query },
+      })),
+    },
+    {
+      role: 'tool',
+      content: calls.map(({ id, step }) => ({
+        type: 'tool-result' as const,
+        toolCallId: id,
+        toolName: SEARCH_TOOL,
+        output: { type: 'text' as const, value: searchResult(step) },
+      })),
+    },
+  ]
+}
 
 /**
  * Counts the calculations of one question. Only a script that ran without an
@@ -239,14 +277,14 @@ const AMOUNT = /(\d{1,3}(?: \d{3})+|\d+) Kč/g
 const SUM_SCRIPT = 'return parametry.castky.reduce((soucet, castka) => soucet + castka, 0)'
 
 /**
- * A stand-in for the test suite (`AI_CHAT_MODEL=fake:chat`): it searches with
- * the question as it is, and when that finds no piece by its words, once more
- * with the previous question in front, the way a model rewrites a follow-up.
+ * A stand-in for the test suite (`AI_CHAT_MODEL=fake:chat`): it reads the first
+ * search, and when that found no piece by its words, searches once more with
+ * the previous question in front, the way a model widens a follow-up.
  * The answer quotes the best piece. A question with "selhani" fails on purpose.
  * A question with "celkem" adds up the amounts in crowns of the found pieces in
  * the sandbox; with "chybny skript" as well, the first script has a syntax error.
  */
-const fakeAnswerer: Answerer = async ({ question, history, settings, search, trace }) => {
+const fakeAnswerer: Answerer = async ({ question, history, settings, found, search, trace }) => {
   const model = modelName('chat')
   let step = 0
   const call = (text: string, searches: string[], calculations = 0) => {
@@ -273,20 +311,18 @@ const fakeAnswerer: Answerer = async ({ question, history, settings, search, tra
 
   if (question.includes('selhani')) throw new Error('The fake chat model was asked to fail.')
 
-  call('', [question])
-  let found = await search(question)
-  trace(found)
-
+  let passages = found.flatMap((step) => step.passages)
   const previous = history.filter((turn) => turn.role === 'visitor').at(-1)
-  if (byWords(found.passages).length === 0 && previous !== undefined) {
+  if (byWords(passages).length === 0 && previous !== undefined) {
     const wider = `${previous.text} ${question}`
     call('', [wider])
-    found = await search(wider)
-    trace(found)
+    const widened = await search(wider)
+    trace(widened)
+    passages = widened.passages
   }
 
   if (question.includes('celkem')) {
-    const counted = byWords(found.passages).flatMap((passage) => {
+    const counted = byWords(passages).flatMap((passage) => {
       const amounts = [...passage.text.matchAll(AMOUNT)].map((match) =>
         Number((match[1] ?? '').replaceAll(' ', '')),
       )
@@ -309,7 +345,7 @@ const fakeAnswerer: Answerer = async ({ question, history, settings, search, tra
     return answer
   }
 
-  const best = byWords(found.passages)[0]
+  const best = byWords(passages)[0]
   const answer =
     best === undefined
       ? 'V archivu jsem k tomu nic nenašel. Zkuste otázku napsat jinak.'

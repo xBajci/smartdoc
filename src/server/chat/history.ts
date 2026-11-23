@@ -1,3 +1,4 @@
+import type { ModelMessage } from 'ai'
 import type { ChatTurn } from '../../archive/types'
 import { MAX_TURN_CHARACTERS } from './settings'
 
@@ -26,4 +27,12 @@ export function historyFromTraces(
       { role: 'archive', text: trace.answer.slice(0, MAX_TURN_CHARACTERS) },
     ])
     .slice(-historyMessages)
+}
+
+/** The conversation as messages of a model: the visitor is the user, the archive the assistant. */
+export function turnsAsMessages(turns: readonly ChatTurn[]): ModelMessage[] {
+  return turns.map((turn) => ({
+    role: turn.role === 'visitor' ? ('user' as const) : ('assistant' as const),
+    content: turn.text,
+  }))
 }

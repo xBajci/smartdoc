@@ -147,28 +147,51 @@ function Calculation({
   )
 }
 
+/** Tokens of a model call, with the part of the input that came from the cache. */
+function tokens(step: { inputTokens: number; cachedInputTokens?: number; outputTokens: number }) {
+  return (step.cachedInputTokens ?? 0) === 0
+    ? fill(cs.chatDebug.tokens, {
+        input: count.format(step.inputTokens),
+        output: count.format(step.outputTokens),
+      })
+    : fill(cs.chatDebug.tokensCached, {
+        input: count.format(step.inputTokens),
+        cached: count.format(step.cachedInputTokens ?? 0),
+        output: count.format(step.outputTokens),
+      })
+}
+
+function Rewrite({ step }: Readonly<{ step: Extract<ChatTraceStep, { kind: 'rewrite' }> }>) {
+  return (
+    <li className="call trace-step trace-step--model">
+      <h3>{cs.chatDebug.rewriteStep}</h3>
+      <Facts facts={[step.model, tokens(step), took(step.durationMs), cost(step.costUsd)]} />
+      {step.queries.length === 0 ? (
+        <p className="field-hint">{cs.chatDebug.rewriteNoQueries}</p>
+      ) : (
+        step.queries.map((query) => (
+          <p key={query} className="trace-step__asks">
+            <Icon name="search" size={15} />
+            {cs.chatDebug.rewriteQuery}: <strong>{query}</strong>
+          </p>
+        ))
+      )}
+      {step.error === null ? null : (
+        <p className="extracted-text call__error">
+          {cs.chatDebug.rewriteFailed}: {step.error}
+        </p>
+      )}
+    </li>
+  )
+}
+
 function Step({ step }: Readonly<{ step: ChatTraceStep }>) {
+  if (step.kind === 'rewrite') return <Rewrite step={step} />
   if (step.kind === 'model') {
     return (
       <li className="call trace-step trace-step--model">
         <h3>{fill(cs.chatDebug.modelStep, { step: step.step })}</h3>
-        <Facts
-          facts={[
-            step.model,
-            (step.cachedInputTokens ?? 0) === 0
-              ? fill(cs.chatDebug.tokens, {
-                  input: count.format(step.inputTokens),
-                  output: count.format(step.outputTokens),
-                })
-              : fill(cs.chatDebug.tokensCached, {
-                  input: count.format(step.inputTokens),
-                  cached: count.format(step.cachedInputTokens ?? 0),
-                  output: count.format(step.outputTokens),
-                }),
-            took(step.durationMs),
-            cost(step.costUsd),
-          ]}
-        />
+        <Facts facts={[step.model, tokens(step), took(step.durationMs), cost(step.costUsd)]} />
         {step.searches.map((query) => (
           <p key={query} className="trace-step__asks">
             <Icon name="search" size={15} />
@@ -384,7 +407,7 @@ function Step({ step }: Readonly<{ step: ChatTraceStep }>) {
 }
 
 function TraceDetail({ trace }: Readonly<{ trace: ChatTrace }>) {
-  const { instructions, ...numbers } = trace.setup
+  const { instructions, rewriteInstructions, ...numbers } = trace.setup
   return (
     <div className="trace">
       <Facts
@@ -446,6 +469,13 @@ function TraceDetail({ trace }: Readonly<{ trace: ChatTrace }>) {
             ))}
           </tbody>
         </table>
+        {rewriteInstructions === undefined ? null : (
+          <>
+            <h4>{cs.chatDebug.rewriteInstructions}</h4>
+            <p className="extracted-text">{rewriteInstructions}</p>
+            <h4>{cs.chatDebug.answerInstructions}</h4>
+          </>
+        )}
         <p className="extracted-text">{instructions}</p>
       </details>
     </div>

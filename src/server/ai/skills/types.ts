@@ -18,6 +18,7 @@ export type SkillUse =
   | 'describe-document'
   | 'describe-image'
   | 'categorize'
+  | 'chat-rewrite'
   | 'chat-answer'
   | 'chat-rerank'
 
@@ -55,6 +56,14 @@ export const SKILL_USES: readonly {
     use: 'categorize',
     group: 'zpracovani',
     label: 'Výběr kategorie (rozhodovací model)',
+    system: false,
+  },
+  // Writes the queries of the first search; it searches nothing and answers nothing, so the
+  // system prompt of the chat, which is about answering, is not for it.
+  {
+    use: 'chat-rewrite',
+    group: 'chat',
+    label: 'Přeformulování otázky v chatu',
     system: false,
   },
   { use: 'chat-answer', group: 'chat', label: 'Odpověď v chatu', system: true },

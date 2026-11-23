@@ -128,8 +128,15 @@ Hledá server, ne prohlížeč. Funkce je v `src/server/search-service.ts`.
 
 ## Chat
 
-Návštěvník se zeptá, model si nástrojem vyžádá hledání a odpoví jen z nalezených úryvků.
+Návštěvník se zeptá. Malý model napíše dotazy pro první hledání, kód je spustí a chatovací model
+odpoví jen z nalezených úryvků; další hledání si vyžádá nástrojem, když úryvky nestačí.
 Podrobnosti jsou v návrhu chatu.
+
+- **Přeformulování otázky** (`src/server/chat/rewriter.ts`, model `AI_REWRITE_MODEL`). Z otázky, rozhovoru,
+  pravidel hledání a glosáře napíše jeden až tři dotazy jako JSON (místo `chat-rewrite`). U navazující otázky
+  smí vrátit žádný, když odpověď už je v rozhovoru. Když selže, hledá se otázka sama. Hledání spustí kód a
+  chatovací model ho dostane jako své vlastní volání nástroje. Nic se tím nevynucuje, takže to funguje u
+  OpenAI i u Anthropicu. První hledání se počítá do `CHAT_MAX_SEARCHES` jako jedno.
 
 - **Kousky.** Zpracování rozdělí dokument na kousky (tabulka `document_chunks`) a ke každému
   uloží embedding. Dokumenty zpracované dřív připraví `pnpm chat:index`.

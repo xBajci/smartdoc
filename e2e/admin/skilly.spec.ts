@@ -35,7 +35,7 @@ test.describe('Skilly: systémový prompt, úpravy a vlastní skilly', () => {
     const processing = group(page, 'Zpracování dokumentů a obrázků')
     const chat = group(page, 'Chat')
     await expect(processing.locator('.skills-nav__item')).toHaveCount(5)
-    await expect(chat.locator('.skills-nav__item')).toHaveCount(6)
+    await expect(chat.locator('.skills-nav__item')).toHaveCount(7)
     // The system prompt is the first line of its group.
     await expect(processing.locator('.skills-nav__item').first()).toContainText(
       'Systémový prompt pro zpracování',
@@ -198,13 +198,13 @@ test.describe('Skilly: systémový prompt, úpravy a vlastní skilly', () => {
     await page.getByRole('button', { name: 'Přidat skill' }).click()
     const dialog = page.getByRole('dialog', { name: 'Nový skill' })
     await dialog.getByRole('radio', { name: 'Chat' }).check()
-    await expect(dialog.getByRole('checkbox')).toHaveCount(2)
+    await expect(dialog.getByRole('checkbox')).toHaveCount(3)
     await dialog.getByLabel('Název skillu').fill('Tykání')
     await dialog.getByLabel('Odpověď v chatu').check()
     await dialog.getByLabel('Text skillu v Markdownu').fill('Návštěvníkovi vykej.')
     await dialog.getByRole('button', { name: 'Přidat skill' }).click()
-    // Six skills of the chat start in files; the seventh is the one just added.
-    await expect(group(page, 'Chat').locator('.skills-nav__item')).toHaveCount(7)
+    // Seven skills of the chat start in files; the eighth is the one just added.
+    await expect(group(page, 'Chat').locator('.skills-nav__item')).toHaveCount(8)
 
     await editor(page, 'Tykání').getByLabel('Název skillu').fill('Vykání')
     await editor(page, 'Tykání').getByRole('button', { name: 'Uložit změny' }).click()

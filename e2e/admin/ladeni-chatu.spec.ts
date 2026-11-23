@@ -104,12 +104,14 @@ test.describe('Ladění chatu', () => {
     await expect(trace.locator('summary').first()).toContainText(FIRST)
     await expect(trace.locator('summary').first()).toContainText('Hledání: 1')
 
-    // The model asks for a search, the search runs both branches, the model answers.
+    // A small model writes the query, the search runs both branches, the chat model answers.
     const steps = trace.locator('.trace-step')
     await expect(steps).toHaveCount(3)
-    await expect(steps.nth(0)).toContainText('Krok 1: volání modelu')
-    await expect(steps.nth(0)).toContainText('fake:chat')
-    await expect(steps.nth(0)).toContainText('Model žádá hledání: Kdo vymění veřejné osvětlení?')
+    await expect(steps.nth(0)).toContainText('Přeformulování otázky')
+    await expect(steps.nth(0)).toContainText('fake:rewrite')
+    await expect(steps.nth(0)).toContainText(
+      'Dotaz pro první hledání: Kdo vymění veřejné osvětlení?',
+    )
 
     const search = steps.nth(1)
     await expect(search).toContainText('Hledání: „Kdo vymění veřejné osvětlení?“')
@@ -151,19 +153,24 @@ test.describe('Ladění chatu', () => {
     await passage.locator('summary').click()
     await expect(passage).toContainText('výměnu veřejného osvětlení v ulici Zahradní')
 
-    await expect(steps.nth(2)).toContainText('Krok 2: volání modelu')
+    await expect(steps.nth(2)).toContainText('Krok 1: volání modelu')
+    await expect(steps.nth(2)).toContainText('fake:chat')
     await expect(steps.nth(2)).toContainText('Elektro Haná')
+    await expect(steps.nth(2)).not.toContainText('Model žádá hledání')
     await expect(trace).toContainText('Odpověď návštěvníkovi')
-    // The first call has nothing to read from the cache; the next one sends the same start again.
-    await expect(steps.nth(0)).toContainText('1 000 tokenů dovnitř, 100 ven')
-    await expect(steps.nth(2)).toContainText('1 000 tokenů dovnitř, z toho 800 z cache, 100 ven')
 
     await trace.getByText('Nastavení a zadání, se kterým otázka běžela').click()
-    await expect(trace.locator('.trace-setup')).toContainText('maxSearches')
-    await expect(trace.locator('.trace-setup')).toContainText('fake:decision')
-    await expect(trace.locator('.trace-setup')).toContainText('hledej_v_archivu')
-    await expect(trace.locator('.trace-setup')).toContainText('Skill: Glosář archivu')
-    await expect(trace.locator('.trace-setup')).toContainText(
+    const setup = trace.locator('.trace-setup')
+    await expect(setup).toContainText('maxSearches')
+    await expect(setup).toContainText('fake:decision')
+    await expect(setup).toContainText('fake:rewrite')
+    await expect(setup).toContainText('hledej_v_archivu')
+    // The glossary goes to both: the rewrite, and the answer that may search again.
+    const rewriteText = setup.locator('h4', { hasText: 'Zadání pro přeformulování otázky' })
+    await expect(rewriteText.locator('+ p')).toContainText('Skill: Glosář archivu')
+    await expect(rewriteText.locator('+ p')).toContainText('Skill: Přeformulování otázky')
+    const answerText = setup.locator('h4', { hasText: 'Zadání pro odpověď' })
+    await expect(answerText.locator('+ p')).toContainText(
       'Úřad píše o věcech jinými slovy než návštěvník',
     )
   })
@@ -173,11 +180,11 @@ test.describe('Ladění chatu', () => {
     await openAdminPage(page, 'Ladění chatu')
     await tryQuestion(page, SUM)
 
-    // Search, then a step that asks for the calculation, the calculation, and the answer.
+    // The rewrite and the first search, a step that asks for the calculation, the calculation, the answer.
     const trace = questionTraces(page).first()
     const steps = trace.locator('.trace-step')
     await expect(steps).toHaveCount(5)
-    await expect(steps.nth(2)).toContainText('Krok 2: volání modelu')
+    await expect(steps.nth(2)).toContainText('Krok 1: volání modelu')
     await expect(steps.nth(2)).toContainText('Model žádá výpočet: 1×')
     const calculation = steps.nth(3)
     await expect(calculation).toContainText('Výpočet')
@@ -186,7 +193,11 @@ test.describe('Ladění chatu', () => {
     await expect(calculation.locator('pre').nth(1)).toContainText('240000')
     await expect(calculation.locator('pre').nth(2)).toHaveText('1110000')
     await expect(calculation).toContainText('započítaný výpočet')
+    await expect(steps.nth(4)).toContainText('Krok 2: volání modelu')
     await expect(steps.nth(4)).toContainText('Celkem 1 110 000 Kč')
+    // The first call has nothing to read from the cache; the next one sends the same start again.
+    await expect(steps.nth(2)).toContainText('1 000 tokenů dovnitř, 100 ven')
+    await expect(steps.nth(4)).toContainText('1 000 tokenů dovnitř, z toho 800 z cache, 100 ven')
 
     await trace.getByText('Nastavení a zadání, se kterým otázka běžela').click()
     await expect(trace.locator('.trace-setup')).toContainText('maxCalculations')

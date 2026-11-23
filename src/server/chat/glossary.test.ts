@@ -25,7 +25,7 @@ describe('the glossary of the chat', () => {
       glossarySkillFile('## Zkratky\n\n- OZV: vyhláška\n'),
     )
     expect(skill).toMatchObject({ key: GLOSSARY_SKILL, kind: 'skill', title: 'Glosář archivu' })
-    expect(skill.uses).toEqual(['chat-answer'])
+    expect(skill.uses).toEqual(['chat-rewrite', 'chat-answer'])
     expect(skill.content).toMatch(/^Úřad píše o věcech jinými slovy/)
     expect(skill.content).toMatch(/- OZV: vyhláška$/)
   })

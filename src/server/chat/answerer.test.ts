@@ -26,7 +26,6 @@ let usage = {
   outputTokens: { total: 5, text: 5, reasoning: 0 },
 }
 
-const search = (dotaz = 'rozpočet'): Call => ({ tool: SEARCH_TOOL, input: { dotaz } })
 const calculate = (skript: string): Call => ({
   tool: CALCULATION_TOOL,
   input: { skript, parametry: { castky: [870000, 240000] } },
@@ -38,6 +37,8 @@ const BROKEN = 'return (parametry.castky[0] +'
 let offered: { tools: string[]; choice: string | undefined }[]
 /** What each step asked the provider for, besides the prompt. */
 let providerOptions: unknown[]
+/** The roles of the messages each step sent. */
+let roles: string[][]
 let steps: ChatTraceStep[]
 
 async function answer(replies: Reply[], limits: Partial<ReturnType<typeof chatSettings>> = {}) {
@@ -48,6 +49,7 @@ async function answer(replies: Reply[], limits: Partial<ReturnType<typeof chatSe
         choice: options.toolChoice?.type,
       })
       providerOptions.push(options.providerOptions)
+      roles.push(options.prompt.map((message) => message.role))
       const reply = replies.shift() ?? 'Hotovo.'
       if (typeof reply === 'string') {
         return {
@@ -81,30 +83,34 @@ async function answer(replies: Reply[], limits: Partial<ReturnType<typeof chatSe
       maxErroredRuns: 2,
       ...limits,
     },
-    search: async (query): Promise<SearchStep> => ({
-      kind: 'search',
-      query,
-      durationMs: 0,
-      embeddingTokens: 0,
-      words: [],
-      meaning: [],
-      passages: [
-        {
-          number: 1,
-          chunkId: 1,
-          documentId: 'zapis',
-          documentTitle: 'Zápis',
-          page: 2,
-          text: 'Osvětlení za 870 000 Kč, dotace spolkům 240 000 Kč.',
-          wordRank: 1,
-          meaningRank: 1,
-          fusedScore: 1,
-        },
-      ],
-    }),
+    found: [found('osvětlení dotace spolkům')],
+    search: async (query) => found(query),
     trace: (step) => steps.push(step),
   })
 }
+
+/** A search that finds the one passage with both amounts. */
+const found = (query: string): SearchStep => ({
+  kind: 'search',
+  query,
+  durationMs: 0,
+  embeddingTokens: 0,
+  words: [],
+  meaning: [],
+  passages: [
+    {
+      number: 1,
+      chunkId: 1,
+      documentId: 'zapis',
+      documentTitle: 'Zápis',
+      page: 2,
+      text: 'Osvětlení za 870 000 Kč, dotace spolkům 240 000 Kč.',
+      wordRank: 1,
+      meaningRank: 1,
+      fusedScore: 1,
+    },
+  ],
+})
 
 const calculations = () => steps.flatMap((step) => (step.kind === 'calculation' ? [step] : []))
 
@@ -112,6 +118,7 @@ describe('the chat model and its calculations', () => {
   beforeEach(() => {
     offered = []
     providerOptions = []
+    roles = []
     steps = []
     usage = { ...usage, inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 } }
     delete process.env.AI_PRICES
@@ -123,7 +130,7 @@ describe('the chat model and its calculations', () => {
       ...usage,
       inputTokens: { total: 1_000_000, noCache: 200_000, cacheRead: 800_000, cacheWrite: 0 },
     }
-    await answer([[search()], 'Hotovo.'])
+    await answer(['Hotovo.'])
     expect(providerOptions[0]).toEqual({
       openai: { promptCacheKey: 'hm-archiv-chat' },
       anthropic: { cacheControl: { type: 'ephemeral' } },
@@ -134,17 +141,18 @@ describe('the chat model and its calculations', () => {
     expect(model?.kind === 'model' && model.costUsd).toBeCloseTo(0.2 + 0.08 + 0.00001)
   })
 
-  it('must search first and only then may calculate', async () => {
-    await answer([[search()], [calculate(GOOD)], 'Celkem 1 110 000 Kč [1].'])
+  it('starts with the passages of the first search and may calculate at once', async () => {
+    await answer([[calculate(GOOD)], 'Celkem 1 110 000 Kč [1].'])
+    // The first search comes as the model's own call of the search tool and what it found.
+    expect(roles[0]).toEqual(['system', 'user', 'assistant', 'tool'])
     // Both steps offer the same tools, so the provider can serve the second from its cache.
-    expect(offered[0]).toEqual({ tools: [SEARCH_TOOL, CALCULATION_TOOL], choice: 'tool' })
+    expect(offered[0]).toEqual({ tools: [SEARCH_TOOL, CALCULATION_TOOL], choice: 'auto' })
     expect(offered[1]).toEqual({ tools: [SEARCH_TOOL, CALCULATION_TOOL], choice: 'auto' })
     expect(calculations()).toMatchObject([{ result: '1110000', error: null, ran: true }])
   })
 
   it('does not count a script that failed, so the model can fix it', async () => {
     const text = await answer([
-      [search()],
       [calculate(BROKEN)],
       [calculate(GOOD)],
       [calculate(GOOD)],
@@ -153,47 +161,40 @@ describe('the chat model and its calculations', () => {
     expect(calculations().map((step) => step.error === null)).toEqual([false, true, true])
     expect(calculations()[0]?.error).toMatch(/^SyntaxError: /)
     // After the error and one calculation the tool is still there; after two calculations it is not.
-    expect(offered[3]?.tools).toContain(CALCULATION_TOOL)
-    expect(offered[4]?.tools).not.toContain(CALCULATION_TOOL)
+    expect(offered[2]?.tools).toContain(CALCULATION_TOOL)
+    expect(offered[3]?.tools).not.toContain(CALCULATION_TOOL)
     expect(text).toBe('Celkem 1 110 000 Kč [1].')
   })
 
   it('ends the calculating after as many failed scripts as the limit allows', async () => {
-    await answer([[search()], [calculate(BROKEN)], [calculate(BROKEN)], 'Nespočítal jsem to.'])
-    expect(offered[2]?.tools).toContain(CALCULATION_TOOL)
-    expect(offered[3]?.tools).not.toContain(CALCULATION_TOOL)
+    await answer([[calculate(BROKEN)], [calculate(BROKEN)], 'Nespočítal jsem to.'])
+    expect(offered[1]?.tools).toContain(CALCULATION_TOOL)
+    expect(offered[2]?.tools).not.toContain(CALCULATION_TOOL)
   })
 
   it('runs only as many of the calculations asked for at once as the limit allows', async () => {
     const many = Array.from({ length: 20 }, () => calculate(GOOD))
-    await answer([[search()], many, 'Hotovo.'])
+    await answer([many, 'Hotovo.'])
     const ran = calculations().filter((step) => step.ran)
     const refused = calculations().filter((step) => !step.ran)
     expect(ran).toHaveLength(2)
     expect(refused).toHaveLength(18)
     expect(refused.every((step) => step.error === CALCULATIONS_USED_UP)).toBe(true)
-    const model = steps.find((step) => step.kind === 'model' && step.step === 2)
+    const model = steps.find((step) => step.kind === 'model' && step.step === 1)
     expect(model).toMatchObject({ calculations: 20, searches: [] })
   })
 
   it('makes the model answer when nothing is left to use', async () => {
-    await answer([[search()], [calculate(GOOD)], 'Hotovo.'], {
-      maxSearches: 1,
-      maxCalculations: 1,
-    })
-    expect(offered[2]).toEqual({ tools: [SEARCH_TOOL, CALCULATION_TOOL], choice: 'none' })
+    // The first search used up the only search.
+    await answer([[calculate(GOOD)], 'Hotovo.'], { maxSearches: 1, maxCalculations: 1 })
+    expect(offered[1]).toEqual({ tools: [SEARCH_TOOL, CALCULATION_TOOL], choice: 'none' })
   })
 
   it('parameters nested deep reach the script as text, and the next calculation runs', async () => {
     // Copied to the worker as an object, this depth could overflow the stack; as JSON text it cannot.
     const depth = 2000
     const deep = `{"skript":"return 1","parametry":${'{"a":'.repeat(depth)}1${'}'.repeat(depth)}}`
-    await answer([
-      [search()],
-      [{ tool: CALCULATION_TOOL, input: deep }],
-      [calculate(GOOD)],
-      'Hotovo.',
-    ])
+    await answer([[{ tool: CALCULATION_TOOL, input: deep }], [calculate(GOOD)], 'Hotovo.'])
     expect(calculations().map((step) => [step.ran, step.result])).toEqual([
       [true, '1'],
       [true, '1110000'],

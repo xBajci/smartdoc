@@ -198,6 +198,7 @@ export interface SessionCall {
     | 'weigh'
     | 'rerank'
     | 'glossary'
+    | 'rewrite'
   model: string
   /** The place the call was made at; in older records the key of one skill. */
   skillKey: string | null
@@ -394,6 +395,19 @@ export interface ChatRerank {
 }
 
 export type ChatTraceStep =
+  | {
+      kind: 'rewrite'
+      model: string
+      /** The queries of the first search; empty when the conversation already holds the answer. */
+      queries: string[]
+      /** Why the model gave no queries; then the question itself was searched. */
+      error: string | null
+      durationMs: number
+      inputTokens: number
+      cachedInputTokens?: number
+      outputTokens: number
+      costUsd: number | null
+    }
   | {
       kind: 'model'
       /** Counted from one. */

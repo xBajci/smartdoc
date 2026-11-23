@@ -8,8 +8,9 @@ import { loadSkills } from '../skills-service'
 import { getAnswerer } from './answerer'
 import { getEmbedder } from './embedder'
 import { fuseRanks } from './fusion'
-import { chatFixed } from './instructions'
+import { chatFixed, rewriteFixed } from './instructions'
 import { hybridSearch, searchByMeaning, searchByWords } from './retrieval'
+import { getRewriter } from './rewriter'
 import { parseSearchQuestions, ranksOfDocuments, type SearchQuestion } from './search-questions'
 import { chatSettings } from './settings'
 
@@ -19,8 +20,9 @@ import { chatSettings } from './settings'
 //
 // Without arguments the question goes in as written: no model, nothing to
 // pay, and two runs over the same data give the same numbers.
-// `--model` lets the chat model write the searches the way it does in the app,
-// with the same instructions and skills. A document then counts at the best
+// `--model` lets the models write the searches the way they do in the app, with
+// the same instructions and skills: the rewrite model the first search, the chat
+// model the ones after it. A document then counts at the best
 // place any of its searches gave it. It costs a little and varies between runs.
 const QUESTIONS_FILE = 'docs/tests/search-questions.md'
 const BRANCHES = ['slova', 'význam', 'spojení'] as const
@@ -88,25 +90,36 @@ async function asWritten(question: SearchQuestion, ids: string[]) {
   return { queries: [question.question], ranks: ranksOf(words, meaning, ids), costUsd: 0 }
 }
 
-const answerInstructions = instructionsFor(await loadSkills(), 'chat-answer', chatFixed())
+const skills = await loadSkills()
+const rewriteInstructions = instructionsFor(skills, 'chat-rewrite', rewriteFixed())
+const answerInstructions = instructionsFor(skills, 'chat-answer', chatFixed())
 
 async function asTheModelWrites(question: SearchQuestion, ids: string[]) {
   const numbers = new Map<number, number>()
   const numberOf = (chunkId: number) =>
     numbers.get(chunkId) ?? numbers.set(chunkId, numbers.size + 1).size
   const tools = { embed, decider: null, rerankGuidance: '', settings, numberOf }
-  const steps: ChatTraceStep[] = []
+  const search = (query: string) => hybridSearch(question.question, query, scope, tools)
+  const rewrite = await getRewriter()({
+    question: question.question,
+    history: [],
+    instructions: rewriteInstructions.text,
+  })
+  const found = await Promise.all(rewrite.queries.map(search))
+  const steps: ChatTraceStep[] = [rewrite, ...found]
   await getAnswerer()({
     question: question.question,
     instructions: answerInstructions.text,
     history: [],
     settings,
-    search: (query) => hybridSearch(question.question, query, scope, tools),
+    found,
+    search,
     trace: (step) => steps.push(step),
   })
   const searches = steps.flatMap((step) => (step.kind === 'search' ? [step] : []))
   const costUsd = steps.reduce(
-    (sum, step) => sum + (step.kind === 'model' ? (step.costUsd ?? 0) : 0),
+    (sum, step) =>
+      sum + (step.kind === 'model' || step.kind === 'rewrite' ? (step.costUsd ?? 0) : 0),
     0,
   )
   return {

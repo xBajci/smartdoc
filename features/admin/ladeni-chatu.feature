@@ -12,22 +12,23 @@ Feature: Ladění chatu
     Given správce je na stránce "Ladění chatu" a nikdo se zatím nezeptal
     When položí zkušební otázku "Kdo vymění veřejné osvětlení?"
     Then otevře se nový rozhovor a záznam otázky ukazuje 1 hledání
-    And krok 1 je volání modelu, který žádá hledání
+    And první je přeformulování otázky modelem "fake:rewrite" s dotazem "Kdo vymění veřejné osvětlení?"
     And hledání ukazuje větev slov (BM25) se skóre a větev významu (embedding) se vzdáleností
     And hledání ukazuje váhy větví s důvodem a tabulku rerankeru se skóre každého úryvku
     And porovnání ukazuje úryvky, které by model dostal bez rozhodovacího modelu, se skóre rerankeru
     And pořadí po rerankeru ukazuje úryvek "[1] Zápis z 9. zasedání zastupitelstva", strana 2, s textem
-    And krok 2 je volání modelu s odpovědí
-    And krok 1 neukazuje žádné tokeny z cache a krok 2 ukazuje, kolik vstupních tokenů přišlo z cache
-    And nastavení ukazuje čísla chatu a zadání pro model
-    And zadání pro model obsahuje "Glosář archivu" o slovech úřadu
+    And po hledání je krok 1, volání modelu s odpovědí
+    And nastavení ukazuje čísla chatu, model pro přeformulování a obě zadání
+    And zadání pro přeformulování i zadání pro odpověď obsahují "Glosář archivu" o slovech úřadu
 
   Scenario: Výpočet je v postupu otázky se skriptem, parametry a výsledkem
     Given správce je na stránce "Ladění chatu"
     When položí zkušební otázku "Kolik obec dá celkem za osvětlení a dotace spolkům?"
-    Then krok 2 je volání modelu, který žádá 1 výpočet
+    Then po prvním hledání je krok 1, volání modelu, který žádá 1 výpočet
     And po něm je výpočet se skriptem, s parametry 870000 a 240000 a s výsledkem 1110000
     And výpočet je označený "započítaný výpočet"
+    And krok 2 je volání modelu s odpovědí
+    And krok 1 neukazuje žádné tokeny z cache a krok 2 ukazuje, kolik vstupních tokenů přišlo z cache
     And nastavení ukazuje maxCalculations a maxErroredRuns a zadání pro model jmenuje nástroj "spocitej"
 
   Scenario: Skript s chybou se do výpočtů nezapočítá a model ho opraví

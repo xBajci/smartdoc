@@ -20,7 +20,7 @@ export const GLOSSARY_FILE = `src/server/ai/skills/${GLOSSARY_SKILL}.md`
 const GLOSSARY_HEAD = `---
 title: Glosář archivu
 purpose: O čem dokumenty archivu jsou a jakými slovy o věcech píše úřad. Nový výtah z dokumentů udělá pnpm glossary:build.
-uses: chat-answer
+uses: chat-rewrite, chat-answer
 ---`
 
 const GLOSSARY_LEAD =

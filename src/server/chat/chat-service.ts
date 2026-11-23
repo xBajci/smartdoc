@@ -22,9 +22,10 @@ import { resolveCitations } from './citations'
 import { getDecider } from './decisions'
 import { getEmbedder } from './embedder'
 import { historyFromTraces } from './history'
-import { chatFixed } from './instructions'
+import { chatFixed, rewriteFixed } from './instructions'
 import { sendFeedback, traceQuestion, traceSearch, type Feedback } from './mlflow'
-import { hybridSearch, type SearchScope } from './retrieval'
+import { hybridSearch, type SearchScope, type SearchStep } from './retrieval'
+import { getRewriter } from './rewriter'
 import { chatSettings, type ChatSettings } from './settings'
 
 const HOUR_MS = 3_600_000
@@ -34,7 +35,7 @@ const TITLE_CHARACTERS = 80
 
 /** One call as the records of AI calls keep it. */
 interface UsageCall {
-  operation: 'chat' | 'embed' | 'weigh' | 'rerank'
+  operation: 'rewrite' | 'chat' | 'embed' | 'weigh' | 'rerank'
   /** The place the call was made at and the skills it was told; a search has none. */
   skillKey?: string
   skills?: { key: string; version: number }[]
@@ -114,6 +115,7 @@ export interface AnsweredQuestion {
   mlflowTraceId: string | null
   embeddingModel: string
   decider: ReturnType<typeof getDecider>
+  rewriteInstructions: ReturnType<typeof instructionsFor>
   answerInstructions: ReturnType<typeof instructionsFor>
   rerankGuidance: ReturnType<typeof instructionsFor>
 }
@@ -130,6 +132,7 @@ export async function answerQuestion(request: AnswerRequest): Promise<AnsweredQu
   const decider = getDecider()
   // What the models of this question are told: the system prompt and the skills of the chat.
   const skills = await loadSkills()
+  const rewriteInstructions = instructionsFor(skills, 'chat-rewrite', rewriteFixed())
   const answerInstructions = instructionsFor(skills, 'chat-answer', chatFixed())
   const rerankGuidance = instructionsFor(skills, 'chat-rerank')
   let embeddingModel = modelName('embedding')
@@ -143,9 +146,25 @@ export async function answerQuestion(request: AnswerRequest): Promise<AnsweredQu
     return numbers.size
   }
 
+  const search = (query: string): Promise<SearchStep> =>
+    traceSearch(query, () =>
+      hybridSearch(question, query, scope, {
+        embed: async (texts) => {
+          const embedded = await embed(texts)
+          embeddingModel = embedded.model
+          return embedded
+        },
+        decider,
+        rerankGuidance: rerankGuidance.text,
+        settings,
+        numberOf,
+      }),
+    )
+
   let answer = ''
   let error: string | null = null
   let mlflowTraceId: string | null = null
+  const rewriter = getRewriter()
   const answerer = getAnswerer()
   try {
     answer = await traceQuestion(
@@ -155,28 +174,27 @@ export async function answerQuestion(request: AnswerRequest): Promise<AnsweredQu
         sessionId: request.sessionId,
         tags: request.tags,
       },
-      () =>
-        answerer({
+      async () => {
+        // A small model writes the queries of the first search, and the code runs them;
+        // the chat model starts with their passages and searches more only when it needs to.
+        const rewrite = await rewriter({
+          question,
+          history,
+          instructions: rewriteInstructions.text,
+        })
+        steps.push(rewrite)
+        const found = await Promise.all(rewrite.queries.map(search))
+        steps.push(...found)
+        return answerer({
           question,
           instructions: answerInstructions.text,
           history,
           settings,
+          found,
           trace: (step) => steps.push(step),
-          search: (query) =>
-            traceSearch(query, () =>
-              hybridSearch(question, query, scope, {
-                embed: async (texts) => {
-                  const embedded = await embed(texts)
-                  embeddingModel = embedded.model
-                  return embedded
-                },
-                decider,
-                rerankGuidance: rerankGuidance.text,
-                settings,
-                numberOf,
-              }),
-            ),
-        }),
+          search,
+        })
+      },
       (traceId) => (mlflowTraceId = traceId),
     )
   } catch (caught) {
@@ -190,6 +208,7 @@ export async function answerQuestion(request: AnswerRequest): Promise<AnsweredQu
     mlflowTraceId,
     embeddingModel,
     decider,
+    rewriteInstructions,
     answerInstructions,
     rerankGuidance,
   }
@@ -217,6 +236,7 @@ export async function askArchive(input: ChatQuestion, asker: Asker): Promise<Cha
     mlflowTraceId,
     embeddingModel,
     decider,
+    rewriteInstructions,
     answerInstructions,
     rerankGuidance,
   } = await answerQuestion({
@@ -234,6 +254,23 @@ export async function askArchive(input: ChatQuestion, asker: Asker): Promise<Cha
   const resolved = resolveCitations(answer, passages)
 
   const usage = steps.flatMap((step): UsageCall[] => {
+    if (step.kind === 'rewrite') {
+      return [
+        {
+          operation: 'rewrite',
+          skillKey: 'chat-rewrite',
+          skills: rewriteInstructions.skills,
+          model: step.model,
+          input: input.question,
+          output: step.queries.join(' | '),
+          error: step.error,
+          durationMs: step.durationMs,
+          inputTokens: step.inputTokens,
+          outputTokens: step.outputTokens,
+          costUsd: step.costUsd,
+        },
+      ]
+    }
     if (step.kind === 'model') {
       return [
         {
@@ -316,6 +353,8 @@ export async function askArchive(input: ChatQuestion, asker: Asker): Promise<Cha
       ...settings,
       embeddingModel,
       decisionModel: decider === null ? 'off' : modelName('decision'),
+      rewriteModel: modelName('rewrite'),
+      rewriteInstructions: rewriteInstructions.text,
       instructions: answerInstructions.text,
     },
     durationMs: Date.now() - started,
