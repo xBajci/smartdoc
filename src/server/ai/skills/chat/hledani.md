@@ -1,7 +1,7 @@
 ---
 title: Hledání v archivu
 purpose: Jak má model v chatu hledat v dokumentech, než odpoví.
-uses: chat-rewrite, chat-answer
+uses: chat-answer
 ---
 - Než odpovíš, vždy hledej nástrojem pro hledání v archivu.
 - Dotaz napiš sám: krátký, v češtině, s klíčovými slovy z otázky.
