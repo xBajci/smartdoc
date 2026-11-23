@@ -406,7 +406,10 @@ export type ChatTraceStep =
       calculations?: number
       /** Time the model took, without the searches it asked for. */
       durationMs: number
+      /** All of the input, the part read from the provider's cache included. */
       inputTokens: number
+      /** Input read from the provider's cache, which costs less; absent in traces older than the cache. */
+      cachedInputTokens?: number
       outputTokens: number
       costUsd: number | null
     }

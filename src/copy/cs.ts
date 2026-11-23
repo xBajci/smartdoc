@@ -456,6 +456,7 @@ export const cs = {
     scopeDocuments: 'rozsah: vybrané dokumenty',
     duration: '{seconds} s',
     tokens: '{input} tokenů dovnitř, {output} ven',
+    tokensCached: '{input} tokenů dovnitř, z toho {cached} z cache, {output} ven',
     modelStep: 'Krok {step}: volání modelu',
     asksSearch: 'Model žádá hledání',
     asksCalculation: 'Model žádá výpočet: {count}×',

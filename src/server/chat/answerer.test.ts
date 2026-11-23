@@ -21,7 +21,7 @@ type Call = { tool: string; input: Record<string, unknown> | string }
 /** What the model does in one step: call tools, or answer. */
 type Reply = Call[] | string
 
-const usage = {
+let usage = {
   inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
   outputTokens: { total: 5, text: 5, reasoning: 0 },
 }
@@ -36,6 +36,8 @@ const BROKEN = 'return (parametry.castky[0] +'
 
 /** The tools each step offered the model, and whether it had to use one. */
 let offered: { tools: string[]; choice: string | undefined }[]
+/** What each step asked the provider for, besides the prompt. */
+let providerOptions: unknown[]
 let steps: ChatTraceStep[]
 
 async function answer(replies: Reply[], limits: Partial<ReturnType<typeof chatSettings>> = {}) {
@@ -45,6 +47,7 @@ async function answer(replies: Reply[], limits: Partial<ReturnType<typeof chatSe
         tools: (options.tools ?? []).map((tool) => tool.name),
         choice: options.toolChoice?.type,
       })
+      providerOptions.push(options.providerOptions)
       const reply = replies.shift() ?? 'Hotovo.'
       if (typeof reply === 'string') {
         return {
@@ -108,13 +111,34 @@ const calculations = () => steps.flatMap((step) => (step.kind === 'calculation' 
 describe('the chat model and its calculations', () => {
   beforeEach(() => {
     offered = []
+    providerOptions = []
     steps = []
+    usage = { ...usage, inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 } }
+    delete process.env.AI_PRICES
+  })
+
+  it('asks every provider to cache the prompt and prices what came from the cache lower', async () => {
+    process.env.AI_PRICES = '{"openai:test":[1,2,0.1]}'
+    usage = {
+      ...usage,
+      inputTokens: { total: 1_000_000, noCache: 200_000, cacheRead: 800_000, cacheWrite: 0 },
+    }
+    await answer([[search()], 'Hotovo.'])
+    expect(providerOptions[0]).toEqual({
+      openai: { promptCacheKey: 'hm-archiv-chat' },
+      anthropic: { cacheControl: { type: 'ephemeral' } },
+    })
+    const model = steps.find((step) => step.kind === 'model')
+    // 200k uncached at 1, 800k from the cache at 0.1, 5 output tokens at 2.
+    expect(model).toMatchObject({ inputTokens: 1_000_000, cachedInputTokens: 800_000 })
+    expect(model?.kind === 'model' && model.costUsd).toBeCloseTo(0.2 + 0.08 + 0.00001)
   })
 
   it('must search first and only then may calculate', async () => {
     await answer([[search()], [calculate(GOOD)], 'Celkem 1 110 000 Kč [1].'])
-    expect(offered[0]).toEqual({ tools: [SEARCH_TOOL], choice: 'required' })
-    expect(offered[1]?.tools).toEqual([SEARCH_TOOL, CALCULATION_TOOL])
+    // Both steps offer the same tools, so the provider can serve the second from its cache.
+    expect(offered[0]).toEqual({ tools: [SEARCH_TOOL, CALCULATION_TOOL], choice: 'tool' })
+    expect(offered[1]).toEqual({ tools: [SEARCH_TOOL, CALCULATION_TOOL], choice: 'auto' })
     expect(calculations()).toMatchObject([{ result: '1110000', error: null, ran: true }])
   })
 
@@ -157,7 +181,7 @@ describe('the chat model and its calculations', () => {
       maxSearches: 1,
       maxCalculations: 1,
     })
-    expect(offered[2]).toEqual({ tools: [], choice: 'none' })
+    expect(offered[2]).toEqual({ tools: [SEARCH_TOOL, CALCULATION_TOOL], choice: 'none' })
   })
 
   it('parameters nested deep reach the script as text, and the next calculation runs', async () => {

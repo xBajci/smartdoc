@@ -155,10 +155,16 @@ function Step({ step }: Readonly<{ step: ChatTraceStep }>) {
         <Facts
           facts={[
             step.model,
-            fill(cs.chatDebug.tokens, {
-              input: count.format(step.inputTokens),
-              output: count.format(step.outputTokens),
-            }),
+            (step.cachedInputTokens ?? 0) === 0
+              ? fill(cs.chatDebug.tokens, {
+                  input: count.format(step.inputTokens),
+                  output: count.format(step.outputTokens),
+                })
+              : fill(cs.chatDebug.tokensCached, {
+                  input: count.format(step.inputTokens),
+                  cached: count.format(step.cachedInputTokens ?? 0),
+                  output: count.format(step.outputTokens),
+                }),
             took(step.durationMs),
             cost(step.costUsd),
           ]}

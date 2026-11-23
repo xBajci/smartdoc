@@ -154,6 +154,9 @@ test.describe('Ladění chatu', () => {
     await expect(steps.nth(2)).toContainText('Krok 2: volání modelu')
     await expect(steps.nth(2)).toContainText('Elektro Haná')
     await expect(trace).toContainText('Odpověď návštěvníkovi')
+    // The first call has nothing to read from the cache; the next one sends the same start again.
+    await expect(steps.nth(0)).toContainText('1 000 tokenů dovnitř, 100 ven')
+    await expect(steps.nth(2)).toContainText('1 000 tokenů dovnitř, z toho 800 z cache, 100 ven')
 
     await trace.getByText('Nastavení a zadání, se kterým otázka běžela').click()
     await expect(trace.locator('.trace-setup')).toContainText('maxSearches')

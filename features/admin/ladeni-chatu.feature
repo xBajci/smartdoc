@@ -18,6 +18,7 @@ Feature: Ladění chatu
     And porovnání ukazuje úryvky, které by model dostal bez rozhodovacího modelu, se skóre rerankeru
     And pořadí po rerankeru ukazuje úryvek "[1] Zápis z 9. zasedání zastupitelstva", strana 2, s textem
     And krok 2 je volání modelu s odpovědí
+    And krok 1 neukazuje žádné tokeny z cache a krok 2 ukazuje, kolik vstupních tokenů přišlo z cache
     And nastavení ukazuje čísla chatu a zadání pro model
 
   Scenario: Výpočet je v postupu otázky se skriptem, parametry a výsledkem

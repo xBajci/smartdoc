@@ -52,6 +52,13 @@ const aiAnswerer: Answerer = async ({
     const { text } = await generateText({
       model: languageModel('chat'),
       telemetry: chatTelemetry(),
+      // Every step sends the instructions, the tools and the steps before it again. The provider
+      // keeps that start in its cache and charges less for it: OpenAI by itself, where the key
+      // sends the requests of the chat to the same cache, and Anthropic when asked to.
+      providerOptions: {
+        openai: { promptCacheKey: 'hm-archiv-chat' },
+        anthropic: { cacheControl: { type: 'ephemeral' } },
+      },
       instructions,
       messages: [
         ...history.map((turn) => ({
@@ -81,21 +88,29 @@ const aiAnswerer: Answerer = async ({
       stopWhen: stepCountIs(
         settings.maxSearches + settings.maxCalculations + settings.maxErroredRuns + 1,
       ),
+      // The list of tools is part of the start of the prompt that the provider caches, and a
+      // changed list makes the cache useless. So the list stays whole wherever it can, and the
+      // tool choice steers the model instead.
       prepareStep: ({ stepNumber }) => {
         stepStarted = Date.now()
         // The first step must search, so a calculation always has passages to start from.
-        if (stepNumber === 0) return { activeTools: [SEARCH_TOOL], toolChoice: 'required' }
-        const active: (typeof SEARCH_TOOL | typeof CALCULATION_TOOL)[] = []
-        if (searchSteps < settings.maxSearches) active.push(SEARCH_TOOL)
-        if (calculations.allowed()) active.push(CALCULATION_TOOL)
+        if (stepNumber === 0) return { toolChoice: { type: 'tool', toolName: SEARCH_TOOL } }
+        const canSearch = searchSteps < settings.maxSearches
+        const canCalculate = calculations.allowed()
+        if (canSearch && canCalculate) return {}
         // With nothing left to use, the model must answer from what it has.
-        if (active.length === 0) return { activeTools: [], toolChoice: 'none' }
-        return { activeTools: active }
+        if (!canSearch && !canCalculate) return { toolChoice: 'none' }
+        // No tool choice offers one tool and keeps the model from the other, so only here the list changes.
+        return { activeTools: [canSearch ? SEARCH_TOOL : CALCULATION_TOOL] }
       },
       onStepEnd: (step) => {
         const tools = [...searched, ...calculated].reduce((sum, item) => sum + item.durationMs, 0)
         const inputTokens = step.usage.inputTokens ?? 0
         const outputTokens = step.usage.outputTokens ?? 0
+        const cached = {
+          read: step.usage.inputTokenDetails.cacheReadTokens ?? 0,
+          written: step.usage.inputTokenDetails.cacheWriteTokens ?? 0,
+        }
         if (searched.length > 0) searchSteps += 1
         trace({
           kind: 'model',
@@ -106,8 +121,9 @@ const aiAnswerer: Answerer = async ({
           calculations: calculated.length,
           durationMs: Math.max(0, Date.now() - stepStarted - tools),
           inputTokens,
+          cachedInputTokens: cached.read,
           outputTokens,
-          costUsd: costOfCall(model, inputTokens, outputTokens),
+          costUsd: costOfCall(model, inputTokens, outputTokens, cached),
         })
         for (const item of searched) trace(item)
         for (const item of calculated) trace(item)
@@ -214,6 +230,8 @@ async function calculate(
 
 /** Tokens the fake model reports for every call, so costs in tests are fixed. */
 const FAKE_USAGE = { inputTokens: 1000, outputTokens: 100 }
+/** Input of every call after the first that the fake model reads from the cache, as a real provider would. */
+const FAKE_CACHED_TOKENS = 800
 const FAKE_QUOTE_CHARACTERS = 220
 
 /** Amounts in crowns as documents write them, like "870 000 Kč". */
@@ -233,6 +251,7 @@ const fakeAnswerer: Answerer = async ({ question, history, settings, search, tra
   let step = 0
   const call = (text: string, searches: string[], calculations = 0) => {
     step += 1
+    const cachedInputTokens = step === 1 ? 0 : FAKE_CACHED_TOKENS
     trace({
       kind: 'model',
       step,
@@ -242,7 +261,11 @@ const fakeAnswerer: Answerer = async ({ question, history, settings, search, tra
       calculations,
       durationMs: 1,
       ...FAKE_USAGE,
-      costUsd: costOfCall(model, FAKE_USAGE.inputTokens, FAKE_USAGE.outputTokens),
+      cachedInputTokens,
+      costUsd: costOfCall(model, FAKE_USAGE.inputTokens, FAKE_USAGE.outputTokens, {
+        read: cachedInputTokens,
+        written: 0,
+      }),
     })
   }
   const byWords = (passages: readonly ChatPassage[]) =>

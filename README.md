@@ -93,7 +93,8 @@ Klíč je v `OPENAI_API_KEY` nebo `ANTHROPIC_API_KEY`. Testy používají dodava
   upravuje a přidává vlastní; jeho texty jsou v databázi (`skill_versions`, `custom_skills`) a každé
   uložení je nová verze.  Záznam každého volání říká, které skilly a v jaké verzi dostalo.
 - **Náklady** (`/sprava/naklady`): součty podle modelu a typu souboru. Ceny modelů jsou
-  v `src/server/ai/prices.ts`, proměnná `AI_PRICES` je doplní nebo opraví.
+  v `src/server/ai/prices.ts`, proměnná `AI_PRICES` je doplní nebo opraví. Cena je `[vstup, výstup]`,
+  volitelně i `[…, čtení z cache, zápis do cache]`; bez nich stojí vstup z cache jako ostatní vstup.
 
 Nahrává se z přehledu dokumentů tlačítkem „Nahrát“. Okno soubory uloží a zavře se, obsah se
 potom zpracuje na pozadí a přehled ukazuje stav každého dokumentu. Obrázek se otevírá v okně
@@ -150,6 +151,10 @@ Podrobnosti jsou v návrhu chatu.
   výsledek se zdroji, skript je v ladění. Kdy a jak počítat říká skill `chat/pocitani`.
 - **Ladění** (`/sprava/chat`): u každé otázky celý postup. Volání modelu, obě větve hledání se skóre,
   váhy větví, skóre rerankeru, texty úryvků, výpočty, odpověď, cena. Správce tam může položit zkušební otázku.
+- **Cache promptu.** Každý krok smyčky posílá modelu znovu zadání, nástroje a předchozí kroky. Poskytovatel
+  ten začátek drží v cache a účtuje ho levněji: OpenAI sám (`promptCacheKey`), Anthropic po zapnutí
+  `cacheControl`. Obojí nastavuje `src/server/chat/answerer.ts`. Ladění u každého volání ukazuje, kolik
+  vstupních tokenů přišlo z cache, a cena je s tím počítaná.
 - **Limity.** `CHAT_HOURLY_LIMIT` na návštěvníka za hodinu, `CHAT_DAILY_LIMIT` celkem za den.
 
 | Co změnit | Kde |
