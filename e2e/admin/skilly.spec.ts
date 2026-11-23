@@ -67,7 +67,7 @@ test.describe('Skilly: systémový prompt, úpravy a vlastní skilly', () => {
 
     // The glossary tells the chat model the words of the office.
     const glossary = await open(page, 'Glosář archivu')
-    await expect(text(page, 'Glosář archivu')).toHaveValue(/OZV: obecně závazná vyhláška/)
+    await expect(text(page, 'Glosář archivu')).toHaveValue(/^Úřad píše o věcech jinými slovy/)
     await expect(glossary.getByLabel('Odpověď v chatu')).toBeChecked()
 
     // Nothing judges the skills and proposes changes any more.

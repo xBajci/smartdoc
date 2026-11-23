@@ -26,23 +26,29 @@ uses: chat-answer
 const GLOSSARY_LEAD =
   'Úřad píše o věcech jinými slovy než návštěvník. Při hledání použij slova úřadu z tohoto glosáře.'
 
-export const GLOSSARY_INSTRUCTIONS = `Jsi archivář obce. Dostaneš seznam dokumentů obecního archivu: u každého název, kategorii, rok a krátký popis. Napiš z nich glosář. Podle glosáře jiný model přepíše otázku návštěvníka na dotaz pro hledání v archivu, takže glosář má říkat, o čem dokumenty jsou a jakými slovy o věcech píšou.
+export const GLOSSARY_INSTRUCTIONS = `Jsi archivář obce. Dostaneš seznam dokumentů obecního archivu: u každého název, kategorii, rok a krátký popis. Napiš z nich glosář. Podle glosáře jiný model přepíše otázku návštěvníka na dotazy pro hledání v archivu, takže glosář má říkat, o čem dokumenty jsou a jakými slovy o věcech píšou.
 
-Glosář piš česky v Markdownu, nejvýše asi 1500 slov, v těchto oddílech:
+Glosář piš česky v Markdownu, asi 3000 až 4000 slov, v těchto oddílech:
 
 ## O čem archiv je
 Pět až deset vět: jaké druhy dokumentů archiv má, za které roky a jaká jsou hlavní témata.
 
+## Druhy dokumentů
+Každý druh dokumentu, který se v archivu opakuje (zápis ze zasedání zastupitelstva, usnesení, rozpočet, závěrečný účet, vyhláška, smlouva, zpravodaj a další): jak se v názvech jmenuje, za které roky v archivu je a na jaké otázky v něm bývá odpověď.
+
+## Časová osa
+Velké akce a změny v obci po letech: stavby, opravy, dotace, nové vyhlášky, prodeje a nákupy pozemků. U každé rok nebo roky a slova, kterými o ní dokumenty píšou.
+
 ## Místní názvy
-Ulice, místní části, rybníky, stavby, spolky a firmy, které se v dokumentech opakují. U každého jedna věta, o co jde.
+Všechny ulice, místní části, rybníky, stavby, spolky, školy, firmy a úřady, které se v dokumentech objevují víckrát. U každého jedna věta, o co jde.
 
 ## Zkratky
 Zkratky z dokumentů a co znamenají.
 
 ## Slova návštěvníka a slova úřadu
-Běžná slova, kterými se lidé ptají, a úřední výrazy, kterými o téže věci píšou dokumenty. Například „popelnice“ a „poplatek za odpad“.
+Aspoň čtyřicet dvojic: běžné slovo, kterým se lidé ptají, a úřední výraz, kterým o téže věci píšou dokumenty. Například „popelnice“ a „poplatek za odpad“.
 
-Piš jen to, co ze seznamu plyne, a nevymýšlej názvy, které v něm nejsou. Jména soukromých osob neuváděj. Vrať jen text oddílů, bez úvodu a bez nadpisu první úrovně.`
+Piš jen to, co ze seznamu plyne, a nevymýšlej názvy, které v něm nejsou. Jména soukromých osob neuváděj; starosta nebo zastupitelstvo jako úřad uvést smíš. Vrať jen text oddílů, bez úvodu a bez nadpisu první úrovně.`
 
 /** The documents as one text, oldest first, so the same archive always gives the same text. */
 export function glossaryInput(documents: readonly GlossarySource[]): string {
