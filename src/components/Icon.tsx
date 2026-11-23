@@ -2,6 +2,7 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUpDown,
+  Calculator,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -57,6 +58,7 @@ import {
  */
 const ICONS = {
   search: Search,
+  calculator: Calculator,
   filter: ListFilter,
   list: List,
   grid: LayoutGrid,

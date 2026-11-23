@@ -4,6 +4,8 @@ import { chatSessionIds, forgetChatTraces, resetArchive } from '../support/datab
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const FIRST = 'Kdo vymění veřejné osvětlení?'
+/** The fake model adds up the amounts in crowns of what it found, in the sandbox. */
+const SUM = 'Kolik obec dá celkem za osvětlení a dotace spolkům?'
 
 /** Asks in the visitor's chat on the current page and waits for each answer. */
 async function visitorAsks(page: Page, ...questions: string[]) {
@@ -157,6 +159,46 @@ test.describe('Ladění chatu', () => {
     await expect(trace.locator('.trace-setup')).toContainText('maxSearches')
     await expect(trace.locator('.trace-setup')).toContainText('fake:decision')
     await expect(trace.locator('.trace-setup')).toContainText('hledej_v_archivu')
+  })
+
+  test('Výpočet je v postupu otázky se skriptem, parametry a výsledkem', async ({ page }) => {
+    await signIn(page)
+    await openAdminPage(page, 'Ladění chatu')
+    await tryQuestion(page, SUM)
+
+    // Search, then a step that asks for the calculation, the calculation, and the answer.
+    const trace = questionTraces(page).first()
+    const steps = trace.locator('.trace-step')
+    await expect(steps).toHaveCount(5)
+    await expect(steps.nth(2)).toContainText('Krok 2: volání modelu')
+    await expect(steps.nth(2)).toContainText('Model žádá výpočet: 1×')
+    const calculation = steps.nth(3)
+    await expect(calculation).toContainText('Výpočet')
+    await expect(calculation).toContainText('parametry.castky.reduce')
+    await expect(calculation.locator('pre').nth(1)).toContainText('870000')
+    await expect(calculation.locator('pre').nth(1)).toContainText('240000')
+    await expect(calculation.locator('pre').nth(2)).toHaveText('1110000')
+    await expect(calculation).toContainText('započítaný výpočet')
+    await expect(steps.nth(4)).toContainText('Celkem 1 110 000 Kč')
+
+    await trace.getByText('Nastavení a zadání, se kterým otázka běžela').click()
+    await expect(trace.locator('.trace-setup')).toContainText('maxCalculations')
+    await expect(trace.locator('.trace-setup')).toContainText('maxErroredRuns')
+    await expect(trace.locator('.trace-setup')).toContainText('spocitej')
+  })
+
+  test('Skript s chybou se do výpočtů nezapočítá a model ho opraví', async ({ page }) => {
+    await signIn(page)
+    await openAdminPage(page, 'Ladění chatu')
+    await tryQuestion(page, `${SUM} chybny skript`)
+
+    const calculations = questionTraces(page).first().locator('.trace-step--calculation')
+    await expect(calculations).toHaveCount(2)
+    await expect(calculations.nth(0)).toContainText('Chyba skriptu: SyntaxError')
+    await expect(calculations.nth(0)).toContainText('nezapočítaný výpočet')
+    await expect(calculations.nth(1).locator('pre').nth(2)).toHaveText('1110000')
+    await expect(calculations.nth(1)).toContainText('započítaný výpočet')
+    await expect(calculations.nth(1)).not.toContainText('nezapočítaný')
   })
 
   test('Otázka návštěvníka je v ladění a její cena v nákladech', async ({ page }) => {

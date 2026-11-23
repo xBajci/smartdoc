@@ -105,6 +105,48 @@ function Branch({
   )
 }
 
+/** The parameters of a calculation, one value per line, as the model gave them. */
+function readable(json: string): string {
+  try {
+    return JSON.stringify(JSON.parse(json), null, 2)
+  } catch {
+    return json
+  }
+}
+
+function Calculation({
+  step,
+}: Readonly<{ step: Extract<ChatTraceStep, { kind: 'calculation' }> }>) {
+  return (
+    <li className="call trace-step trace-step--calculation">
+      <h3>{cs.chatDebug.calculationStep}</h3>
+      <Facts
+        facts={[
+          took(step.durationMs),
+          step.error === null
+            ? cs.chatDebug.calculationCounted
+            : cs.chatDebug.calculationNotCounted,
+        ]}
+      />
+      <h4>{cs.chatDebug.calculationScript}</h4>
+      <pre className="extracted-text">{step.script}</pre>
+      <h4>{cs.chatDebug.calculationParameters}</h4>
+      <pre className="extracted-text">{readable(step.parameters)}</pre>
+      {step.error === null ? (
+        <>
+          <h4>{cs.chatDebug.calculationResult}</h4>
+          <pre className="extracted-text">{step.result}</pre>
+        </>
+      ) : (
+        <p className="extracted-text call__error">
+          {step.ran ? cs.chatDebug.calculationFailed : cs.chatDebug.calculationRefused}:{' '}
+          {step.error}
+        </p>
+      )}
+    </li>
+  )
+}
+
 function Step({ step }: Readonly<{ step: ChatTraceStep }>) {
   if (step.kind === 'model') {
     return (
@@ -127,6 +169,12 @@ function Step({ step }: Readonly<{ step: ChatTraceStep }>) {
             {cs.chatDebug.asksSearch}: <strong>{query}</strong>
           </p>
         ))}
+        {(step.calculations ?? 0) === 0 ? null : (
+          <p className="trace-step__asks">
+            <Icon name="calculator" size={15} />
+            {fill(cs.chatDebug.asksCalculation, { count: step.calculations ?? 0 })}
+          </p>
+        )}
         {step.text === '' ? null : (
           <>
             <h4>{cs.chatDebug.modelText}</h4>
@@ -136,6 +184,8 @@ function Step({ step }: Readonly<{ step: ChatTraceStep }>) {
       </li>
     )
   }
+
+  if (step.kind === 'calculation') return <Calculation step={step} />
 
   const { weights, rerank, baseline } = step
   const reranked = rerank !== undefined && rerank.error === null

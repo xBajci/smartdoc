@@ -35,7 +35,7 @@ test.describe('Skilly: systémový prompt, úpravy a vlastní skilly', () => {
     const processing = group(page, 'Zpracování dokumentů a obrázků')
     const chat = group(page, 'Chat')
     await expect(processing.locator('.skills-nav__item')).toHaveCount(5)
-    await expect(chat.locator('.skills-nav__item')).toHaveCount(4)
+    await expect(chat.locator('.skills-nav__item')).toHaveCount(5)
     // The system prompt is the first line of its group.
     await expect(processing.locator('.skills-nav__item').first()).toContainText(
       'Systémový prompt pro zpracování',

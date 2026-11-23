@@ -59,6 +59,23 @@ test.describe('Chat nad archivem', () => {
     await expect(chat(page).getByRole('textbox', { name: 'Otázka pro archiv' })).toHaveValue('')
   })
 
+  test('Otázka na výpočet dostane spočítaný výsledek se zdroji, bez skriptu', async ({ page }) => {
+    await ask(page, 'Kolik obec dá celkem za osvětlení a dotace spolkům?')
+    await expect(answers(page)).toContainText('Celkem 1 110 000 Kč')
+    await expect(chat(page).locator('.chat-reference')).toHaveText(['[1]', '[2]'])
+    const sources = chat(page).locator('.chat-sources li')
+    await expect(sources).toHaveCount(2)
+    // Both pages of the minutes, in the order the answer cites them.
+    await expect(
+      sources.filter({ hasText: 'Zápis z 9. zasedání zastupitelstva · str. 2' }),
+    ).toHaveCount(1)
+    await expect(
+      sources.filter({ hasText: 'Zápis z 9. zasedání zastupitelstva · str. 3' }),
+    ).toHaveCount(1)
+    await expect(answers(page)).not.toContainText('parametry')
+    await expect(answers(page)).not.toContainText('return')
+  })
+
   test('Zdroj otevře dokument na uvedené straně a chat zůstane', async ({ page }) => {
     await ask(page, 'Kdo vymění veřejné osvětlení?')
     await chat(page)

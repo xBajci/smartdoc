@@ -46,7 +46,10 @@ export default defineConfig({
       },
     }),
     storedFilesInDevelopment(),
-    nitro(),
+    nitro({
+      // The chat's sandbox loads QuickJS in a worker thread from disk, so it must be in the build as files.
+      traceDeps: ['quickjs-emscripten-core', '@jitl/quickjs-singlefile-mjs-release-sync'],
+    }),
     viteReact(),
   ],
 })

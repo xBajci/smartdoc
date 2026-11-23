@@ -398,10 +398,12 @@ export type ChatTraceStep =
       /** Counted from one. */
       step: number
       model: string
-      /** What the model wrote in this step; empty when it only asked for a search. */
+      /** What the model wrote in this step; empty when it only asked for a search or a calculation. */
       text: string
       /** The searches the model asked for in this step. */
       searches: string[]
+      /** How many calculations the model asked for in this step; absent in traces older than them. */
+      calculations?: number
       /** Time the model took, without the searches it asked for. */
       durationMs: number
       inputTokens: number
@@ -421,6 +423,20 @@ export type ChatTraceStep =
       weights?: ChatWeights
       rerank?: ChatRerank
       baseline?: ChatBaselinePassage[]
+    }
+  | {
+      kind: 'calculation'
+      /** The script as the model wrote it: the body of a function that gets `parametry`. */
+      script: string
+      /** The data the model gave the script, as JSON. */
+      parameters: string
+      /** What the script returned, as JSON; `null` when it failed. */
+      result: string | null
+      /** What went wrong, as the model was told; `null` when the script ran. */
+      error: string | null
+      /** False when the run was refused because the calculations were used up. */
+      ran: boolean
+      durationMs: number
     }
 
 /** A place in a document that an answer leans on. */

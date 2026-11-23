@@ -1,7 +1,7 @@
 Feature: Ladění chatu
   Správce vidí otázky z chatu po rozhovorech. U každé otázky vidí celý postup: historii, kterou
   model dostal, volání modelu, hledání v obou větvích, váhy větví, skóre rerankeru, úryvky pro
-  model a konečnou odpověď. Může položit zkušební otázku, a to i do otevřeného rozhovoru.
+  model, výpočty a konečnou odpověď. Může položit zkušební otázku, a to i do otevřeného rozhovoru.
   Návštěvník může každou odpověď ohodnotit. Správce hodnocení vidí u otázky a rozhovory podle něj filtruje.
 
   Scenario: Bez přihlášení není postup otázek vidět
@@ -19,6 +19,20 @@ Feature: Ladění chatu
     And pořadí po rerankeru ukazuje úryvek "[1] Zápis z 9. zasedání zastupitelstva", strana 2, s textem
     And krok 2 je volání modelu s odpovědí
     And nastavení ukazuje čísla chatu a zadání pro model
+
+  Scenario: Výpočet je v postupu otázky se skriptem, parametry a výsledkem
+    Given správce je na stránce "Ladění chatu"
+    When položí zkušební otázku "Kolik obec dá celkem za osvětlení a dotace spolkům?"
+    Then krok 2 je volání modelu, který žádá 1 výpočet
+    And po něm je výpočet se skriptem, s parametry 870000 a 240000 a s výsledkem 1110000
+    And výpočet je označený "započítaný výpočet"
+    And nastavení ukazuje maxCalculations a maxErroredRuns a zadání pro model jmenuje nástroj "spocitej"
+
+  Scenario: Skript s chybou se do výpočtů nezapočítá a model ho opraví
+    Given správce je na stránce "Ladění chatu"
+    When položí zkušební otázku "Kolik obec dá celkem za osvětlení a dotace spolkům? chybny skript"
+    Then první výpočet ukazuje "Chyba skriptu: SyntaxError" a je označený "nezapočítaný výpočet"
+    And druhý výpočet má výsledek 1110000 a je označený "započítaný výpočet"
 
   Scenario: Otázka návštěvníka je v ladění a její cena v nákladech
     Given návštěvník se v chatu zeptal "Kdo vymění veřejné osvětlení?" a potom "Kolik?"

@@ -140,8 +140,16 @@ Podrobnosti jsou v návrhu chatu.
   Volání jsou dvě záměrně: váhy musí být známé dřív, než se vyberou úryvky pro reranker.
   Když Jev selže nebo chybí klíč, platí pořadí RRF se stejnými vahami.
   Hledání vždy uloží i to pořadí bez něj. Odpověď ho nepoužije, ladění ho ukáže vedle pro porovnání.
+- **Výpočty** (nástroj `spocitej`, `src/server/chat/sandbox.ts`). Když odpověď potřebuje součet, průměr
+  nebo změnu v procentech, model napíše skript v JavaScriptu a čísla z úryvků mu dá jako parametry.
+  Skript běží v QuickJS (WebAssembly) bez sítě, souborů a Node. Engine má pevně 64 MB paměti a běží
+  ve vlastním vlákně (`src/server/chat/sandbox-worker.ts`). Když skript nedoběhne do 1,5 s, server
+  vlákno zastaví zvenku, takže pomalý skript nikdy nezdrží zbytek serveru. Build musí mít QuickJS jako
+  soubory: `traceDeps` ve `vite.config.ts`. Do `CHAT_MAX_CALCULATIONS` se počítá jen skript, který doběhl bez chyby. Skript
+  s chybou model opraví, chybných běhů smí být nejvýš `CHAT_MAX_ERRORED_RUNS`. Návštěvník vidí jen
+  výsledek se zdroji, skript je v ladění. Kdy a jak počítat říká skill `chat/pocitani`.
 - **Ladění** (`/sprava/chat`): u každé otázky celý postup. Volání modelu, obě větve hledání se skóre,
-  váhy větví, skóre rerankeru, texty úryvků, odpověď, cena. Správce tam může položit zkušební otázku.
+  váhy větví, skóre rerankeru, texty úryvků, výpočty, odpověď, cena. Správce tam může položit zkušební otázku.
 - **Limity.** `CHAT_HOURLY_LIMIT` na návštěvníka za hodinu, `CHAT_DAILY_LIMIT` celkem za den.
 
 | Co změnit | Kde |

@@ -241,8 +241,8 @@ export async function askArchive(input: ChatQuestion, asker: Asker): Promise<Cha
           skillKey: 'chat-answer',
           skills: answerInstructions.skills,
           model: step.model,
-          input: step.step === 1 ? input.question : 'Úryvky z předchozího hledání.',
-          output: step.text === '' ? `Hledat: ${step.searches.join(' | ')}` : step.text,
+          input: step.step === 1 ? input.question : 'Výsledky nástrojů z předchozího kroku.',
+          output: step.text === '' ? toolsAskedFor(step) : step.text,
           error: null,
           durationMs: step.durationMs,
           inputTokens: step.inputTokens,
@@ -251,6 +251,8 @@ export async function askArchive(input: ChatQuestion, asker: Asker): Promise<Cha
         },
       ]
     }
+    // A calculation runs here, in the sandbox, and costs nothing.
+    if (step.kind === 'calculation') return []
     const { weights, rerank } = step
     const decisions = rerank?.durationMs ?? 0
     const calls: UsageCall[] = [
@@ -490,4 +492,11 @@ export async function findChatTrace(id: string): Promise<ChatTrace | null> {
     steps: row.steps,
     setup: row.setup,
   }
+}
+
+/** What a model step that wrote no text asked for, as the usage list shows it. */
+function toolsAskedFor(step: Extract<ChatTraceStep, { kind: 'model' }>): string {
+  const asked = step.searches.length === 0 ? [] : [`Hledat: ${step.searches.join(' | ')}`]
+  if ((step.calculations ?? 0) > 0) asked.push(`Spočítat: ${step.calculations}×`)
+  return asked.join(', ')
 }
