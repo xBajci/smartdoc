@@ -10,6 +10,7 @@ import {
   NOTHING_FOUND,
   PARAMETERS_NOT_JSON,
   SEARCH_TOOL,
+  SEARCHES_USED_UP,
   scriptFailed,
 } from './instructions'
 import { chatTelemetry } from './mlflow'
@@ -50,10 +51,16 @@ const aiAnswerer: Answerer = async ({
   /** Searches and calculations of the step that is running; they follow its model call in the trace. */
   let searched: SearchStep[] = []
   let calculated: CalculationStep[] = []
+  /** Searches of the running step that came after the searches were used up. */
+  let refused: string[] = []
   let stepStarted = Date.now()
   /** Steps that searched; a step may send several searches at once. The first search counts as one. */
   let searchSteps = found.length === 0 ? 0 : 1
   const calculations = calculationBudget(settings)
+  // Every step but the last uses up a search, a calculation or an errored run; a call
+  // refused for a used-up limit wastes a step, and the margin leaves room for a few.
+  const maxSteps =
+    settings.maxSearches + settings.maxCalculations + settings.maxErroredRuns + 1 + REFUSAL_MARGIN
 
   try {
     const { text } = await generateText({
@@ -82,6 +89,11 @@ const aiAnswerer: Answerer = async ({
               .describe('Co hledat: klíčová slova nebo krátká věta v češtině, bez oslovení.'),
           }),
           execute: async ({ dotaz }) => {
+            // The searches of one step all count as one, so a step that may search runs them all.
+            if (searchSteps >= settings.maxSearches) {
+              refused.push(dotaz)
+              return SEARCHES_USED_UP
+            }
             const step = await search(dotaz)
             searched.push(step)
             return searchResult(step)
@@ -89,22 +101,19 @@ const aiAnswerer: Answerer = async ({
         }),
         [CALCULATION_TOOL]: calculationTool(calculations, (step) => calculated.push(step)),
       },
-      // A safety net only: every step but the last uses up a search, a calculation or an errored run.
-      stopWhen: stepCountIs(
-        settings.maxSearches + settings.maxCalculations + settings.maxErroredRuns + 1,
-      ),
+      stopWhen: stepCountIs(maxSteps),
       // The list of tools is part of the start of the prompt that the provider caches, and a
-      // changed list makes the cache useless. So the list stays whole wherever it can, and the
-      // tool choice steers the model instead.
-      prepareStep: () => {
+      // changed list makes the cache useless. So the list never changes: a tool whose limit is
+      // used up says so when called, and only the tool choice changes.
+      prepareStep: ({ stepNumber }) => {
         stepStarted = Date.now()
         const canSearch = searchSteps < settings.maxSearches
         const canCalculate = calculations.allowed()
-        if (canSearch && canCalculate) return {}
-        // With nothing left to use, the model must answer from what it has.
-        if (!canSearch && !canCalculate) return { toolChoice: 'none' }
-        // No tool choice offers one tool and keeps the model from the other, so only here the list changes.
-        return { activeTools: [canSearch ? SEARCH_TOOL : CALCULATION_TOOL] }
+        // With nothing left to use, or in the last step, the model must answer from what it has.
+        if ((!canSearch && !canCalculate) || stepNumber >= maxSteps - 1) {
+          return { toolChoice: 'none' }
+        }
+        return {}
       },
       onStepEnd: (step) => {
         const tools = [...searched, ...calculated].reduce((sum, item) => sum + item.durationMs, 0)
@@ -121,6 +130,7 @@ const aiAnswerer: Answerer = async ({
           model,
           text: step.text,
           searches: searched.map((item) => item.query),
+          ...(refused.length === 0 ? {} : { refusedSearches: refused }),
           calculations: calculated.length,
           durationMs: Math.max(0, Date.now() - stepStarted - tools),
           inputTokens,
@@ -132,6 +142,7 @@ const aiAnswerer: Answerer = async ({
         for (const item of calculated) trace(item)
         searched = []
         calculated = []
+        refused = []
       },
     })
     return text
@@ -143,6 +154,9 @@ const aiAnswerer: Answerer = async ({
 }
 
 type CalculationStep = Extract<ChatTraceStep, { kind: 'calculation' }>
+
+/** Steps the loop may spend on calls refused because their limit was used up. */
+const REFUSAL_MARGIN = 2
 
 /** What the model is told a search found. */
 function searchResult(step: SearchStep): string {

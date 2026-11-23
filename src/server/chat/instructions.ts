@@ -31,6 +31,10 @@ export function chatFixed(): string[] {
 /** Said to the model in place of passages when a search found nothing. */
 export const NOTHING_FOUND = 'Hledání nenašlo žádný úryvek.'
 
+/** Said to the model in place of passages when it may not search any more. */
+export const SEARCHES_USED_UP =
+  'Hledání pro tuto otázku jsou vyčerpaná. Odpověz z úryvků, které máš.'
+
 /** Said to the model in place of a result when it may not calculate any more. */
 export const CALCULATIONS_USED_UP =
   'Výpočty pro tuto otázku jsou vyčerpané. Odpověz z toho, co máš.'

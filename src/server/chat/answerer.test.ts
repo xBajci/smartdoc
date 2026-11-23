@@ -2,7 +2,12 @@ import { MockLanguageModelV4 } from 'ai/test'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChatTraceStep } from '../../archive/types'
 import { getAnswerer } from './answerer'
-import { CALCULATION_TOOL, CALCULATIONS_USED_UP, SEARCH_TOOL } from './instructions'
+import {
+  CALCULATION_TOOL,
+  CALCULATIONS_USED_UP,
+  SEARCH_TOOL,
+  SEARCHES_USED_UP,
+} from './instructions'
 import type { SearchStep } from './retrieval'
 import { chatSettings } from './settings'
 
@@ -30,6 +35,7 @@ const calculate = (skript: string): Call => ({
   tool: CALCULATION_TOOL,
   input: { skript, parametry: { castky: [870000, 240000] } },
 })
+const search = (dotaz: string): Call => ({ tool: SEARCH_TOOL, input: { dotaz } })
 const GOOD = 'return parametry.castky[0] + parametry.castky[1]'
 const BROKEN = 'return (parametry.castky[0] +'
 
@@ -39,6 +45,8 @@ let offered: { tools: string[]; choice: string | undefined }[]
 let providerOptions: unknown[]
 /** The roles of the messages each step sent. */
 let roles: string[][]
+/** What each tool told the model, in the order the model got it. */
+let results: string[]
 let steps: ChatTraceStep[]
 
 async function answer(replies: Reply[], limits: Partial<ReturnType<typeof chatSettings>> = {}) {
@@ -50,6 +58,13 @@ async function answer(replies: Reply[], limits: Partial<ReturnType<typeof chatSe
       })
       providerOptions.push(options.providerOptions)
       roles.push(options.prompt.map((message) => message.role))
+      results = options.prompt.flatMap((message) =>
+        message.role === 'tool'
+          ? message.content.flatMap((part) =>
+              part.type === 'tool-result' && part.output.type === 'text' ? [part.output.value] : [],
+            )
+          : [],
+      )
       const reply = replies.shift() ?? 'Hotovo.'
       if (typeof reply === 'string') {
         return {
@@ -119,6 +134,7 @@ describe('the chat model and its calculations', () => {
     offered = []
     providerOptions = []
     roles = []
+    results = []
     steps = []
     usage = { ...usage, inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 } }
     delete process.env.AI_PRICES
@@ -160,16 +176,50 @@ describe('the chat model and its calculations', () => {
     ])
     expect(calculations().map((step) => step.error === null)).toEqual([false, true, true])
     expect(calculations()[0]?.error).toMatch(/^SyntaxError: /)
-    // After the error and one calculation the tool is still there; after two calculations it is not.
-    expect(offered[2]?.tools).toContain(CALCULATION_TOOL)
-    expect(offered[3]?.tools).not.toContain(CALCULATION_TOOL)
     expect(text).toBe('Celkem 1 110 000 Kč [1].')
   })
 
+  it('never changes the tools; a used-up tool says so when called', async () => {
+    await answer([[calculate(GOOD)], [calculate(GOOD)], [calculate(GOOD)], 'Hotovo.'])
+    expect(
+      offered.every((step) => step.tools.join() === `${SEARCH_TOOL},${CALCULATION_TOOL}`),
+    ).toBe(true)
+    expect(calculations().map((step) => step.ran)).toEqual([true, true, false])
+    expect(calculations()[2]?.error).toBe(CALCULATIONS_USED_UP)
+  })
+
   it('ends the calculating after as many failed scripts as the limit allows', async () => {
-    await answer([[calculate(BROKEN)], [calculate(BROKEN)], 'Nespočítal jsem to.'])
-    expect(offered[1]?.tools).toContain(CALCULATION_TOOL)
-    expect(offered[2]?.tools).not.toContain(CALCULATION_TOOL)
+    await answer([
+      [calculate(BROKEN)],
+      [calculate(BROKEN)],
+      [calculate(GOOD)],
+      'Nespočítal jsem to.',
+    ])
+    expect(calculations().map((step) => step.ran)).toEqual([true, true, false])
+    expect(calculations()[2]?.error).toBe(CALCULATIONS_USED_UP)
+  })
+
+  it('refuses a search after the searches are used up, and the trace says so', async () => {
+    // The first search used up the only search.
+    await answer([[search('rozpočet 2025')], 'Hotovo.'], { maxSearches: 1 })
+    expect(results.at(-1)).toBe(SEARCHES_USED_UP)
+    expect(steps.filter((step) => step.kind === 'search')).toHaveLength(0)
+    const model = steps.find((step) => step.kind === 'model' && step.step === 1)
+    expect(model).toMatchObject({ searches: [], refusedSearches: ['rozpočet 2025'] })
+  })
+
+  it('makes the model answer in the last step, however many calls it wasted', async () => {
+    const limits = { maxSearches: 1, maxCalculations: 1, maxErroredRuns: 1 }
+    // The scripted model calls a tool whenever it is told to; a real one answers when it may not.
+    const text = await answer(
+      [...Array.from({ length: 5 }, () => [search('znovu')]), 'Hotovo.'],
+      limits,
+    )
+    // Three limits, one more step, and two for refused calls: the sixth step must answer.
+    expect(offered).toHaveLength(6)
+    expect(offered[5]?.choice).toBe('none')
+    expect(offered[4]?.choice).toBe('auto')
+    expect(text).toBe('Hotovo.')
   })
 
   it('runs only as many of the calculations asked for at once as the limit allows', async () => {

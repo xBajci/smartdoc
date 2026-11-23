@@ -417,6 +417,8 @@ export type ChatTraceStep =
       text: string
       /** The searches the model asked for in this step. */
       searches: string[]
+      /** Searches it asked for after the searches were used up; they did not run. */
+      refusedSearches?: string[]
       /** How many calculations the model asked for in this step; absent in traces older than them. */
       calculations?: number
       /** Time the model took, without the searches it asked for. */

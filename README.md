@@ -137,6 +137,9 @@ Podrobnosti jsou v návrhu chatu.
   smí vrátit žádný, když odpověď už je v rozhovoru. Když selže, hledá se otázka sama. Hledání spustí kód a
   chatovací model ho dostane jako své vlastní volání nástroje. Nic se tím nevynucuje, takže to funguje u
   OpenAI i u Anthropicu. První hledání se počítá do `CHAT_MAX_SEARCHES` jako jedno.
+- **Limity smyčky.** Chatovací model dostává vždy oba nástroje, i když je limit jednoho vyčerpaný; měnit seznam
+  nástrojů by zahodilo cache. Nástroj s vyčerpaným limitem modelu odpoví, že už nesmí, a ladění odmítnuté hledání
+  ukáže. Když nezbývá nic, nebo v posledním povoleném kroku, smyčka pošle `toolChoice: 'none'` a model musí odpovědět.
 
 - **Kousky.** Zpracování rozdělí dokument na kousky (tabulka `document_chunks`) a ke každému
   uloží embedding. Dokumenty zpracované dřív připraví `pnpm chat:index`.

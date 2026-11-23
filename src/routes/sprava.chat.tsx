@@ -198,6 +198,12 @@ function Step({ step }: Readonly<{ step: ChatTraceStep }>) {
             {cs.chatDebug.asksSearch}: <strong>{query}</strong>
           </p>
         ))}
+        {(step.refusedSearches ?? []).map((query) => (
+          <p key={query} className="trace-step__asks">
+            <Icon name="search" size={15} />
+            {cs.chatDebug.asksSearchRefused}: <strong>{query}</strong>
+          </p>
+        ))}
         {(step.calculations ?? 0) === 0 ? null : (
           <p className="trace-step__asks">
             <Icon name="calculator" size={15} />

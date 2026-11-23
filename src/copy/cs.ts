@@ -467,6 +467,7 @@ export const cs = {
     rewriteInstructions: 'Zadání pro přeformulování otázky',
     answerInstructions: 'Zadání pro odpověď',
     asksSearch: 'Model žádá hledání',
+    asksSearchRefused: 'Model žádá hledání, ale hledání jsou vyčerpaná',
     asksCalculation: 'Model žádá výpočet: {count}×',
     modelText: 'Model napsal',
     searchStep: 'Hledání: „{query}“',
