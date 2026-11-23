@@ -4,13 +4,13 @@ import { CHAT_FEEDBACK_FILTERS, MAX_CHAT_DOCUMENTS } from '~/archive/types'
 import type {
   ArchiveDocument,
   ArchiveSnapshot,
-  ChatAnswer,
   ChatFeedbackFilter,
   ChatQuestion,
   ChatScope,
   ChatSessionSummary,
   ChatTrace,
   ChatTraceSummary,
+  ChatUpdate,
   CategoryInput,
   DocumentChanges,
   DocumentPage,
@@ -22,7 +22,7 @@ import type {
 } from '~/archive/types'
 import * as service from './archive-service'
 import {
-  askArchive,
+  askArchiveLive,
   findChatSession,
   findChatTrace,
   listChatSessions,
@@ -133,11 +133,14 @@ function chatQuestion(data: ChatQuestion): ChatQuestion {
   }
 }
 
-/** One question to the chat. Open to visitors, so it is limited per visitor and per day. */
+/**
+ * One question to the chat. Open to visitors, so it is limited per visitor and
+ * per day. It streams what the chat is doing and ends with the answer.
+ */
 export const askArchiveFn = createServerFn({ method: 'POST' })
   .validator(chatQuestion)
-  .handler(({ data }): Promise<ChatAnswer> =>
-    askArchive(data, { admin: isAdmin(), hash: clientKey() }),
+  .handler(({ data }): AsyncGenerator<ChatUpdate> =>
+    askArchiveLive(data, { admin: isAdmin(), hash: clientKey() }),
   )
 
 /**

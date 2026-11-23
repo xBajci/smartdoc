@@ -4,12 +4,14 @@ import type {
   ChatAnswer,
   ChatFeedbackFilter,
   ChatPassage,
+  ChatProgress,
   ChatQuestion,
   ChatSessionSummary,
   ChatTrace,
   ChatTraceStep,
   ChatTraceSummary,
   ChatTurn,
+  ChatUpdate,
 } from '../../archive/types'
 import { getDatabase } from '../../db/client'
 import { aiUsage, chatTraces } from '../../db/schema'
@@ -104,6 +106,8 @@ export interface AnswerRequest {
   sessionId: string
   /** More tags for the trace in MLflow. */
   tags?: Record<string, string>
+  /** Hears what the chat starts doing, so the visitor can be told while they wait. */
+  report?: (progress: ChatProgress) => void
 }
 
 export interface AnsweredQuestion {
@@ -125,6 +129,8 @@ export interface AnsweredQuestion {
  */
 export async function answerQuestion(request: AnswerRequest): Promise<AnsweredQuestion> {
   const { question, scope, history, settings } = request
+  const report = request.report ?? (() => undefined)
+  let searches = 0
   const steps: ChatTraceStep[] = []
   const embed = getEmbedder()
   const decider = getDecider()
@@ -162,8 +168,11 @@ export async function answerQuestion(request: AnswerRequest): Promise<AnsweredQu
           history,
           settings,
           trace: (step) => steps.push(step),
-          search: (query) =>
-            traceSearch(query, () =>
+          search: async (query) => {
+            searches += 1
+            // A question allowed one search only has no "last" one to tell of.
+            report(searches > 1 && searches >= settings.maxSearches ? 'lastSearch' : 'search')
+            const found = await traceSearch(query, () =>
               hybridSearch(question, query, scope, {
                 embed: async (texts) => {
                   const embedded = await embed(texts)
@@ -174,8 +183,13 @@ export async function answerQuestion(request: AnswerRequest): Promise<AnsweredQu
                 rerankGuidance: rerankGuidance.text,
                 settings,
                 numberOf,
+                onRerank: () => report('rank'),
               }),
-            ),
+            )
+            // The pieces go to the model next, which reads them.
+            report('read')
+            return found
+          },
         }),
       (traceId) => (mlflowTraceId = traceId),
     )
@@ -199,7 +213,11 @@ export async function answerQuestion(request: AnswerRequest): Promise<AnsweredQu
  * Answers one question and leaves a trace of how the answer came to be. The
  * trace and the cost are written whether the answer was made or not.
  */
-export async function askArchive(input: ChatQuestion, asker: Asker): Promise<ChatAnswer> {
+export async function askArchive(
+  input: ChatQuestion,
+  asker: Asker,
+  report?: (progress: ChatProgress) => void,
+): Promise<ChatAnswer> {
   const limit = await overLimit(asker)
   if (limit !== null) return { ok: false, problem: limit }
   if ((missingKey('chat') ?? missingKey('embedding')) !== null) {
@@ -226,12 +244,15 @@ export async function askArchive(input: ChatQuestion, asker: Asker): Promise<Cha
     settings,
     questionId: id,
     sessionId,
+    report,
   })
 
   const passages = steps.flatMap((step): ChatPassage[] =>
     step.kind === 'search' ? step.passages : [],
   )
+  if (error === null && answer !== '') report?.('check')
   const resolved = resolveCitations(answer, passages)
+  if (resolved.sources.length > 0) report?.('sources')
 
   const usage = steps.flatMap((step): UsageCall[] => {
     if (step.kind === 'model') {
@@ -342,6 +363,43 @@ export async function askArchive(input: ChatQuestion, asker: Asker): Promise<Cha
 
   if (error !== null || resolved.text === '') return { ok: false, problem: 'failed' }
   return { ok: true, text: resolved.text, sources: resolved.sources, traceId: id, sessionId }
+}
+
+/**
+ * Answers one question like `askArchive`, but yields what the chat starts
+ * doing while it works, so the visitor sees the progress. The answer comes last.
+ */
+export async function* askArchiveLive(
+  input: ChatQuestion,
+  asker: Asker,
+): AsyncGenerator<ChatUpdate> {
+  const waiting: ChatUpdate[] = []
+  let done = false
+  let wake: (() => void) | undefined
+  const push = (update: ChatUpdate) => {
+    waiting.push(update)
+    wake?.()
+  }
+  const work = askArchive(input, asker, (progress) => push({ kind: 'progress', progress }))
+    .then((answer) => push({ kind: 'answer', answer }))
+    .finally(() => {
+      done = true
+      wake?.()
+    })
+  // A failure is thrown below, after the progress before it was sent.
+  work.catch(() => undefined)
+  for (;;) {
+    const next = waiting.shift()
+    if (next !== undefined) {
+      yield next
+    } else if (done) {
+      break
+    } else {
+      await new Promise<void>((resolve) => (wake = resolve))
+      wake = undefined
+    }
+  }
+  await work
 }
 
 /**

@@ -102,15 +102,26 @@ const aiAnswerer: Answerer = async ({
 /** Tokens the fake model reports for every call, so costs in tests are fixed. */
 const FAKE_USAGE = { inputTokens: 1000, outputTokens: 100 }
 const FAKE_QUOTE_CHARACTERS = 220
+/** A question with this mark is answered slowly, so a test sees the progress of the search. */
+const FAKE_SLOW = '(pomalu)'
+const FAKE_READING_MS = 4000
 
 /**
  * A stand-in for the test suite (`AI_CHAT_MODEL=fake:chat`): it searches with
  * the question as it is, and when that finds no piece by its words, once more
  * with the previous question in front, the way a model rewrites a follow-up.
- * The answer quotes the best piece. A question with "selhani" fails on purpose.
+ * The answer quotes the best piece. A question with "selhani" fails on purpose;
+ * one with "(pomalu)" reads every search a while.
  */
-const fakeAnswerer: Answerer = async ({ question, history, search, trace }) => {
+const fakeAnswerer: Answerer = async ({ question: asked, history, search: find, trace }) => {
   const model = modelName('chat')
+  const slow = asked.includes(FAKE_SLOW)
+  const question = asked.replace(FAKE_SLOW, '').trim()
+  const search = async (query: string) => {
+    const found = await find(query)
+    if (slow) await new Promise((resolve) => setTimeout(resolve, FAKE_READING_MS))
+    return found
+  }
   let step = 0
   const call = (text: string, searches: string[]) => {
     step += 1

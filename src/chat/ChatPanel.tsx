@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { archive } from '~/archive/store'
-import type { ArchiveDocument } from '~/archive/types'
+import type { ArchiveDocument, ChatUpdate } from '~/archive/types'
 import { FileBadge } from '~/components/FileBadge'
 import { Icon } from '~/components/Icon'
 import { cs, fill } from '~/copy/cs'
@@ -29,6 +29,57 @@ function withReferences(text: string): ReactNode[] {
     ) : (
       part
     ),
+  )
+}
+
+/** How long each step of the progress stays shown at least, so the quick ones can be read too. */
+const PROGRESS_STEP_MS = 400
+/** After this long reading what it found, the model is writing the answer. */
+const ALMOST_AFTER_MS = 4000
+/** A step shown this long gets running dots, so the visitor sees the chat is still at work. */
+const DOTS_AFTER_MS = 1000
+const DOTS_EVERY_MS = 400
+
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** What the visitor reads while the answer is made: the thing the chat is doing now. */
+function currentStep(progress: NonNullable<ChatMessage['progress']>): string {
+  const step = progress.at(-1)
+  if (step === undefined) return cs.chat.progress.start
+  if (step !== 'search') return cs.chat.progress[step]
+  // A search after the first one looks further.
+  return progress.filter((earlier) => earlier === 'search').length === 1
+    ? cs.chat.progress.search
+    : cs.chat.progress.searchMore
+}
+
+/**
+ * One step of the progress. It ends with "…"; when it takes over a second,
+ * the dots run: ".", "..", "...", and again. The parent gives every step its
+ * own key, so a new step starts from "…".
+ */
+function ProgressStep({ text }: Readonly<{ text: string }>) {
+  const [dots, setDots] = useState(0)
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    let interval: ReturnType<typeof setInterval> | undefined
+    const start = setTimeout(() => {
+      setDots(1)
+      interval = setInterval(() => setDots((current) => (current % 3) + 1), DOTS_EVERY_MS)
+    }, DOTS_AFTER_MS)
+    return () => {
+      clearTimeout(start)
+      clearInterval(interval)
+    }
+  }, [])
+  return (
+    <p className="chat-progress" role="status">
+      {text}
+      {/* The running dots are for the eye only; a screen reader hears the step once. */}
+      <span aria-hidden="true" className="chat-progress__dots">
+        {dots === 0 ? '…' : '.'.repeat(dots)}
+      </span>
+    </p>
   )
 }
 
@@ -112,17 +163,51 @@ export function ChatPanel({
     setMessages((current) => [
       ...current,
       { id: `question-${asked.current}`, role: 'visitor', text: trimmed },
-      { id: answerId, role: 'archive', text: cs.chat.thinking, pending: true },
+      { id: answerId, role: 'archive', text: '', pending: true, progress: [] },
     ])
     setQuestion('')
     setWaiting(true)
 
-    const settle = (answer: Partial<ChatMessage>) =>
+    const change = (answer: (message: ChatMessage) => Partial<ChatMessage>) =>
       setMessages((current) =>
         current.map((message) =>
-          message.id === answerId ? { ...message, pending: false, ...answer } : message,
+          message.id === answerId ? { ...message, ...answer(message) } : message,
         ),
       )
+    const settle = (answer: Partial<ChatMessage>) =>
+      change(() => ({ pending: false, progress: undefined, ...answer }))
+    // The server tells what it is doing while it works; the answer comes last.
+    let shownAt = Date.now()
+    let almost: ReturnType<typeof setTimeout> | undefined
+    async function follow(updates: AsyncIterable<ChatUpdate>) {
+      for await (const update of updates) {
+        await pause(shownAt + PROGRESS_STEP_MS - Date.now())
+        shownAt = Date.now()
+        clearTimeout(almost)
+        if (update.kind === 'progress') {
+          const step = update.progress
+          change((message) => ({ progress: [...(message.progress ?? []), step] }))
+          // A long read means the model is writing; the visitor hears the end is near.
+          if (step === 'read') {
+            almost = setTimeout(
+              () => change((message) => ({ progress: [...(message.progress ?? []), 'almost'] })),
+              ALMOST_AFTER_MS,
+            )
+          }
+          continue
+        }
+        const { answer } = update
+        if (answer.ok) sessionId.current = answer.sessionId
+        settle(
+          answer.ok
+            ? { text: answer.text, sources: answer.sources, traceId: answer.traceId }
+            : { text: cs.chat.problems[answer.problem], failed: true },
+        )
+        return
+      }
+      // A stream that ends without an answer broke on the way.
+      settle({ text: cs.chat.problems.failed, failed: true })
+    }
     askArchiveFn({
       data: {
         question: trimmed,
@@ -131,18 +216,12 @@ export function ChatPanel({
         documentIds: chosen.map((document) => document.id),
       },
     })
-      .then(
-        (answer) => {
-          if (answer.ok) sessionId.current = answer.sessionId
-          settle(
-            answer.ok
-              ? { text: answer.text, sources: answer.sources, traceId: answer.traceId }
-              : { text: cs.chat.problems[answer.problem], failed: true },
-          )
-        },
-        () => settle({ text: cs.chat.problems.failed, failed: true }),
-      )
-      .finally(() => setWaiting(false))
+      .then(follow)
+      .catch(() => settle({ text: cs.chat.problems.failed, failed: true }))
+      .finally(() => {
+        clearTimeout(almost)
+        setWaiting(false)
+      })
   }
 
   // What the visitor says of one answer: whether they found in it what they
@@ -294,7 +373,14 @@ export function ChatPanel({
                     {message.role === 'visitor' ? cs.chat.fromVisitor : cs.chat.fromArchive}
                   </span>
                 </span>
-                <p className="chat-message__text">{withReferences(message.text)}</p>
+                {message.pending === true ? (
+                  <ProgressStep
+                    key={message.progress?.length ?? 0}
+                    text={currentStep(message.progress ?? [])}
+                  />
+                ) : (
+                  <p className="chat-message__text">{withReferences(message.text)}</p>
+                )}
                 {/* Right under the answer, and quiet on purpose: two small buttons nobody has to press. */}
                 {message.traceId === undefined ? null : (
                   <div className="chat-feedback" role="group" aria-label={cs.chat.feedback.label}>

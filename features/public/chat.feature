@@ -28,6 +28,13 @@ Feature: Chat nad archivem
     When návštěvník se zeptá "Co je ve 4/2025?"
     Then odpověď vychází z dokumentu "Zpravodaj 4/2025"
 
+  Scenario: Během hledání chat ukazuje, co právě dělá
+    When návštěvník se zeptá a hledání chvíli trvá
+    Then pod otázkou vidí vždy jen jeden krok a každý další nahradí předchozí
+    And kroky jdou za sebou "Přemýšlím nad otázkou", "Prohledávám dokumenty", "Řadím výsledky", "Analyzuji výsledky", "Ještě poslední kontrola" a "Přidávám zdroje"
+    And krok, který trvá déle než sekundu, má na konci běžící tečky ".", "..", "..."
+    And když odpověď dorazí, postup zmizí a zůstane odpověď se zdrojem
+
   Scenario: Když v archivu odpověď není, chat to řekne a neuvede zdroj
     When návštěvník se zeptá "Otevírací doba zoologické zahrady"
     Then odpověď je "V archivu jsem k tomu nic nenašel."

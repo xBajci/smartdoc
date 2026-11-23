@@ -136,7 +136,18 @@ export const cs = {
       'Jaký je koeficient zastavěnosti na území obce?',
       'Co projednalo poslední zastupitelstvo?',
     ],
-    thinking: 'Hledám v dokumentech…',
+    // Without dots: the panel adds them, and makes them run when a step takes long.
+    progress: {
+      start: 'Přemýšlím nad otázkou',
+      search: 'Prohledávám dokumenty',
+      searchMore: 'Prohledávám další dokumenty',
+      lastSearch: 'Poslední hledání',
+      rank: 'Řadím výsledky',
+      read: 'Analyzuji výsledky',
+      almost: 'Už to bude',
+      check: 'Ještě poslední kontrola',
+      sources: 'Přidávám zdroje',
+    },
     problems: {
       'hourly-limit': 'Položili jste hodně otázek za sebou. Zkuste to znovu za hodinu.',
       'daily-limit': 'Chat má pro dnešek vyčerpaný počet otázek. Zkuste to zítra.',

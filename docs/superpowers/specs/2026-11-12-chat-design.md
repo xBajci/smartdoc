@@ -104,7 +104,12 @@ Správce tam může položit zkušební otázku. Co se dá měnit:
 
 ## Co návrh nedělá
 
-- Odpověď se neposílá po částech (streaming). Návštěvník vidí „Hledám v dokumentech…“.
+- Text odpovědi se neposílá po částech. Server ale průběžně posílá, co právě dělá
+  (`ChatProgress`), a návštěvník místo odpovědi vidí jeden krok, který další krok nahradí:
+  „Prohledávám dokumenty…“, „Řadím výsledky…“, „Analyzuji výsledky…“, „Ještě poslední
+  kontrola…“, „Přidávám zdroje…“. „Už to bude…“ přidá panel sám, když model píše odpověď
+  déle než 4 s. Každý krok zůstane aspoň 0,4 s, aby šel přečíst. Krok delší než 1 s má
+  běžící tečky (`.`, `..`, `...`).
 - Zadání chatu není skill, takže ho optimalizátor nenavrhuje.
 - Změna názvu dokumentu nepřepíše `indexed` ani embedding. Pomůže „Zpracovat znovu“.
 - `pg_textsearch` musí být na serveru databáze (`shared_preload_libraries`). Neon ho podle

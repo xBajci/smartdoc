@@ -3500,9 +3500,22 @@ a.icon-button {
 }
 
 /* Chat: an answer in the making, a refused question, and the debugger of the flow. */
-.chat-message--pending .chat-message__text {
+.chat-progress {
+  justify-self: start;
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--paper);
   color: var(--ink-soft);
+  font-size: 1.0625rem;
   font-style: italic;
+  line-height: 1.45;
+}
+
+/* As wide as three dots, so the running dots do not move what comes after. */
+.chat-progress__dots {
+  display: inline-block;
+  min-width: 1.2em;
 }
 
 .chat-message--failed .chat-message__text {

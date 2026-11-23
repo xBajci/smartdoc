@@ -1,6 +1,6 @@
-import type { ChatSource } from '~/archive/types'
+import type { ChatProgress, ChatSource } from '~/archive/types'
 
-export type { ChatScope, ChatSource } from '~/archive/types'
+export type { ChatProgress, ChatScope, ChatSource } from '~/archive/types'
 
 export interface ChatMessage {
   id: string
@@ -10,6 +10,11 @@ export interface ChatMessage {
   sources?: ChatSource[]
   /** The answer is still being made. */
   pending?: boolean
+  /**
+   * What the chat has started doing for a pending answer, oldest first.
+   * `almost` is the panel's own: the answer is taking a while to write.
+   */
+  progress?: (ChatProgress | 'almost')[]
   /** The message says why there is no answer; it is not part of the conversation. */
   failed?: boolean
   /** The record of an answer on the server; what the visitor says of the answer is stored under it. */

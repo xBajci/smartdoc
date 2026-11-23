@@ -59,6 +59,50 @@ test.describe('Chat nad archivem', () => {
     await expect(chat(page).getByRole('textbox', { name: 'Otázka pro archiv' })).toHaveValue('')
   })
 
+  test('Během hledání chat ukazuje, co právě dělá', async ({ page }) => {
+    // The suite turns motion off; the running dots need it on.
+    await page.emulateMedia({ reducedMotion: 'no-preference' })
+    // Some steps show for a moment only, so the page writes down every text the step had.
+    await page.evaluate(() => {
+      const seen: string[] = []
+      Object.assign(window, { progressSeen: seen })
+      new MutationObserver(() => {
+        const text = document.querySelector('.chat-progress')?.textContent
+        if (text !== undefined && seen.at(-1) !== text) seen.push(text)
+      }).observe(document.body, { childList: true, subtree: true, characterData: true })
+    })
+    // The fake model reads every search a while when the question asks it to.
+    const input = chat(page).getByRole('textbox', { name: 'Otázka pro archiv' })
+    await input.fill('Kdo vymění veřejné osvětlení? (pomalu)')
+    await input.press('Enter')
+    const progress = chat(page).locator('.chat-progress')
+    await expect(progress).toHaveCount(1)
+    await expect(progress).toHaveCount(0)
+    const seen = await page.evaluate(
+      () => (window as unknown as { progressSeen: string[] }).progressSeen,
+    )
+    // One step at a time, each new one in place of the last.
+    expect([...new Set(seen.map((text) => text.replace(/[.…]+$/, '')))]).toEqual([
+      'Přemýšlím nad otázkou',
+      'Prohledávám dokumenty',
+      'Řadím výsledky',
+      'Analyzuji výsledky',
+      'Ještě poslední kontrola',
+      'Přidávám zdroje',
+    ])
+    // A step that takes long gets running dots.
+    for (const text of [
+      'Analyzuji výsledky…',
+      'Analyzuji výsledky.',
+      'Analyzuji výsledky..',
+      'Analyzuji výsledky...',
+    ]) {
+      expect(seen).toContain(text)
+    }
+    await expect(answers(page)).toContainText('Práce provede firma Elektro Haná za 870 000 Kč')
+    await expect(chat(page).locator('.chat-sources li')).toHaveCount(1)
+  })
+
   test('Zdroj otevře dokument na uvedené straně a chat zůstane', async ({ page }) => {
     await ask(page, 'Kdo vymění veřejné osvětlení?')
     await chat(page)

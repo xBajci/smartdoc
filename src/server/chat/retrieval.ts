@@ -104,6 +104,8 @@ export interface SearchTools {
   settings: ChatSettings
   /** Gives a piece the number the model cites it by; a piece found twice keeps its number. */
   numberOf: (chunkId: number) => number
+  /** Called when the reranker starts, so the visitor learns of it. */
+  onRerank?: () => void
 }
 
 const message = (caught: unknown) => (caught instanceof Error ? caught.message : String(caught))
@@ -217,6 +219,7 @@ export async function hybridSearch(
   }))
   let rerank: ChatRerank | undefined
   if (decider !== null && candidates.length > 0) {
+    tools.onRerank?.()
     const rerankStarted = Date.now()
     try {
       const { scores, model, inputTokens, outputTokens } = await decider.rerank(

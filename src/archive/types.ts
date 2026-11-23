@@ -464,6 +464,20 @@ export type ChatAnswer =
     }
   | { ok: false; problem: 'hourly-limit' | 'daily-limit' | 'not-set-up' | 'failed' }
 
+/**
+ * What the chat starts doing while it makes an answer, told to the visitor as
+ * it happens: a search (`lastSearch` when no other may follow), the decision
+ * model ranking what it found, the chat model reading the pieces of a search,
+ * and once the model answered, the check of its citations and the sources
+ * they point at.
+ */
+export type ChatProgress = 'search' | 'lastSearch' | 'rank' | 'read' | 'check' | 'sources'
+
+/** What the chat sends while a question is answered: its progress, and at last the answer. */
+export type ChatUpdate =
+  | { kind: 'progress'; progress: ChatProgress }
+  | { kind: 'answer'; answer: ChatAnswer }
+
 export interface ChatTraceSummary {
   id: string
   at: string

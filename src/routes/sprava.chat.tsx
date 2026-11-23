@@ -2,6 +2,7 @@ import { createFileRoute, useRouter } from '@tanstack/react-router'
 import { useState, type FormEvent } from 'react'
 import { formatUsd } from '~/archive/format'
 import type {
+  ChatAnswer,
   ChatFeedbackFilter,
   ChatHit,
   ChatSessionSummary,
@@ -562,9 +563,12 @@ function ChatDebugger() {
     setAsking(true)
     setMessage(null)
     try {
-      const answer = await askArchiveFn({
+      const updates = await askArchiveFn({
         data: { question: asked, sessionId: session?.id, scope: 'archive', documentIds: [] },
       })
+      // The debugger shows the trace afterwards, so it waits for the answer only.
+      let answer: ChatAnswer = { ok: false, problem: 'failed' }
+      for await (const update of updates) if (update.kind === 'answer') answer = update.answer
       if (answer.ok) {
         setOpened(answer.traceId)
         await openSession(answer.sessionId)
