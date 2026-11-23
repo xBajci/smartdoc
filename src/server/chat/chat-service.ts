@@ -22,7 +22,7 @@ import { resolveCitations } from './citations'
 import { getDecider } from './decisions'
 import { getEmbedder } from './embedder'
 import { historyFromTraces } from './history'
-import { CHAT_FIXED } from './instructions'
+import { chatFixed } from './instructions'
 import { sendFeedback, traceQuestion, type Feedback } from './mlflow'
 import { hybridSearch } from './retrieval'
 import { chatSettings } from './settings'
@@ -114,7 +114,7 @@ export async function askArchive(input: ChatQuestion, asker: Asker): Promise<Cha
   const decider = getDecider()
   // What the models of this question are told: the system prompt and the skills of the chat.
   const skills = await loadSkills()
-  const answerInstructions = instructionsFor(skills, 'chat-answer', CHAT_FIXED)
+  const answerInstructions = instructionsFor(skills, 'chat-answer', chatFixed())
   const rerankGuidance = instructionsFor(skills, 'chat-rerank')
   let embeddingModel = modelName('embedding')
 

@@ -8,7 +8,7 @@ import { loadSkills } from '../skills-service'
 import { getAnswerer } from './answerer'
 import { getEmbedder } from './embedder'
 import { fuseRanks } from './fusion'
-import { CHAT_FIXED } from './instructions'
+import { chatFixed } from './instructions'
 import { hybridSearch, searchByMeaning, searchByWords } from './retrieval'
 import { parseSearchQuestions, ranksOfDocuments, type SearchQuestion } from './search-questions'
 import { chatSettings } from './settings'
@@ -88,7 +88,7 @@ async function asWritten(question: SearchQuestion, ids: string[]) {
   return { queries: [question.question], ranks: ranksOf(words, meaning, ids), costUsd: 0 }
 }
 
-const answerInstructions = instructionsFor(await loadSkills(), 'chat-answer', CHAT_FIXED)
+const answerInstructions = instructionsFor(await loadSkills(), 'chat-answer', chatFixed())
 
 async function asTheModelWrites(question: SearchQuestion, ids: string[]) {
   const numbers = new Map<number, number>()
