@@ -18,6 +18,16 @@ export function adminPasswordHash(): string {
   return required('ADMIN_PASSWORD_HASH')
 }
 
+/**
+ * The token `pnpm skills:push` sends skill texts from their files with (see
+ * `/api/skills`). Null when not set or shorter than 32 characters: the
+ * endpoint is then switched off.
+ */
+export function skillsApiToken(): string | null {
+  const token = process.env.SKILLS_API_TOKEN?.trim() ?? ''
+  return token.length >= 32 ? token : null
+}
+
 /** Files go to Vercel Blob when its token is present, otherwise to a local folder. */
 export function storageMode(): 'blob' | 'local' {
   return process.env.BLOB_READ_WRITE_TOKEN ? 'blob' : 'local'

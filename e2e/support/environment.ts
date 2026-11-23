@@ -14,6 +14,8 @@ export const STORAGE_DIR = '.data/e2e-storage'
 export const MLFLOW_URL = `http://127.0.0.1:${FAKE_MLFLOW_PORT}`
 export const MLFLOW_EXPERIMENT_ID = '7'
 export const MLFLOW_AUTHORIZATION = `Basic ${Buffer.from('hm-archiv:e2e-mlflow-heslo').toString('base64')}`
+/** The token `pnpm skills:push` sends skill texts with. */
+export const SKILLS_API_TOKEN = 'e2e-only-skills-token-not-used-anywhere-else'
 /** The public address the application under test believes it has. */
 export const SITE_URL = 'https://archiv.example.cz'
 
@@ -28,6 +30,7 @@ export function serverEnvironment(port: number): Record<string, string> {
     SITE_URL: `${SITE_URL}/`,
     SESSION_SECRET: 'e2e-only-session-secret-not-used-anywhere-else',
     ADMIN_PASSWORD_HASH: hashPassword(TEST_PASSWORD),
+    SKILLS_API_TOKEN,
     // Local storage even if the developer's shell carries a blob token.
     BLOB_READ_WRITE_TOKEN: '',
     // Fixed answers instead of a real model: tests cost nothing and repeat exactly.

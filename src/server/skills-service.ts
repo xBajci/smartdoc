@@ -94,6 +94,46 @@ async function activate(writer: Writer, skillKey: string, content: string, ratio
   })
 }
 
+/** The text of a starting skill as it is in its file in the repository. */
+export interface SkillFileText {
+  key: string
+  content: string
+}
+
+/**
+ * Makes the texts from the files of starting skills the texts in use
+ * (`pnpm skills:push`). Every text is checked first, and either all are saved
+ * or none. Null when a text is not for a starting skill, empty or too long.
+ */
+export async function pushSkillFiles(
+  files: readonly SkillFileText[],
+): Promise<{ key: string; status: 'updated' | 'unchanged' }[] | null> {
+  const texts = files.map(({ key, content }) => ({ key, text: content.trim() }))
+  const valid =
+    texts.length > 0 &&
+    new Set(texts.map(({ key }) => key)).size === texts.length &&
+    texts.every(
+      ({ key, text }) =>
+        SKILLS.some((skill) => skill.key === key) &&
+        text !== '' &&
+        text.length <= MAX_SKILL_CHARACTERS,
+    )
+  if (!valid) return null
+  const current = await loadSkills(true)
+  const changed = texts.filter(
+    ({ key, text }) => current.find((skill) => skill.key === key)?.content !== text,
+  )
+  await getDatabase().transaction(async (transaction) => {
+    for (const { key, text } of changed) {
+      await activate(transaction, key, text, 'Nahráno ze souboru.')
+    }
+  })
+  return texts.map(({ key }) => ({
+    key,
+    status: changed.some((item) => item.key === key) ? 'updated' : 'unchanged',
+  }))
+}
+
 /** The text the administrator wrote for a skill. It is in use from the next call on. */
 export async function saveSkill(skillKey: string, content: string): Promise<boolean> {
   const text = content.trim()

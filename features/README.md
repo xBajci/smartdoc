@@ -10,6 +10,7 @@ Scénář v testu nese stejný název jako v `.feature` souboru.
 | `admin/sprava.feature` | `e2e/admin/sprava.spec.ts` | automatizováno |
 | `admin/nahravani.feature` | `e2e/admin/nahravani.spec.ts` | automatizováno |
 | `admin/kategorie.feature` | `e2e/admin/kategorie.spec.ts` | automatizováno |
+| `admin/skilly-ze-souboru.feature` | `e2e/admin/skilly-ze-souboru.spec.ts` | automatizováno |
 
 Testy běží proti skutečnému serveru, databázi `hm_archiv_e2e` a úložišti ve složce
 `.data/e2e-storage`. Před každým testem se archiv vrátí do stejného ukázkového stavu.
