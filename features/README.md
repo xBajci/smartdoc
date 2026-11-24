@@ -7,6 +7,7 @@ Scénář v testu nese stejný název jako v `.feature` souboru.
 | --- | --- | --- |
 | `public/knihovna.feature` | `e2e/public/knihovna.spec.ts` | automatizováno |
 | `public/prohlizec.feature` | `e2e/public/prohlizec.spec.ts` | automatizováno |
+| `public/nova-verze.feature` | `e2e/public/nova-verze.spec.ts` | automatizováno |
 | `admin/sprava.feature` | `e2e/admin/sprava.spec.ts` | automatizováno |
 | `admin/nahravani.feature` | `e2e/admin/nahravani.spec.ts` | automatizováno |
 | `admin/kategorie.feature` | `e2e/admin/kategorie.spec.ts` | automatizováno |
