@@ -126,6 +126,24 @@ přes stránku, PDF v prohlížeči na místě seznamu.
 - **Chat** začíná polem pro otázku a příklady. „Zeptat se na dokument“ omezí odpověď na jeden dokument.
 - Aplikace nemá uživatelské účty. Hlavička proto ukazuje jen „Návštěvník“ nebo „Správce archivu“.
 
+## Chyba stránky a karta se starou verzí
+
+Kdo má web otevřený přes nasazení, má v kartě starou verzi a nový server jí neodpoví. Stránka se
+pak sama načte znovu, místo aby ukázala chybu. Pravidlo má jedno místo: `src/reload.ts`.
+
+- **Číslo buildu.** Každý build dostane id (`vite.config.ts`, `src/version.ts`). Server ho říká na
+  adrese `/api/verze`. Karta zná id, se kterým vznikla.
+- **Volání serverové funkce selže.** Karta se zeptá na `/api/verze`. Když server běží na jiném buildu,
+  načte se znovu. Když ne, chybu dostane ten, kdo volal. Všechna volání jdou přes `serverFunctionFetch`
+  (`src/start.ts`).
+- **Stránka selže** (chyba při načítání nebo při vykreslení). Ukáže se `src/components/PageFailed.tsx`:
+  stránka se načte znovu a nic neukáže.
+- **Chybí soubor starého buildu.** Vite pošle událost `vite:preloadError` a stránka se načte znovu.
+- **Pojistka proti smyčce.** Po chybě se stránka načte znovu nejvýš jednou za 30 sekund. Když selže hned
+  zase, ukáže „Archiv se nepodařilo načíst“ s tlačítkem „Načíst znovu“.
+- **Id serverové funkce** plyne jen z jejího jména, ne ze souboru (`generateFunctionId` ve `vite.config.ts`).
+  Přesun funkce do jiného souboru proto starou kartu nerozbije. Jména musí být jedinečná; hlídá to `functions.test.ts`.
+
 ## Hledání a stránkování
 
 Hledá server, ne prohlížeč. Funkce je v `src/server/search-service.ts`.

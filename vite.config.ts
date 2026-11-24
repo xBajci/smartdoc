@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from 'node:crypto'
 import { tanstackStart } from '@tanstack/react-start/plugin/vite'
 import viteReact from '@vitejs/plugin-react'
 import { nitro } from 'nitro/vite'
@@ -26,11 +27,23 @@ export default defineConfig({
   server: {
     port: 3000,
   },
+  define: {
+    // Names this build. The server and the browser files get the same id, so a
+    // tab can tell that the server was deployed again (see `src/version.ts`).
+    'import.meta.env.VITE_BUILD_ID': JSON.stringify(randomUUID()),
+  },
   resolve: {
     tsconfigPaths: true,
   },
   plugins: [
     tanstackStart({
+      serverFns: {
+        // The id of a server function follows from its name alone, not from its
+        // file. A tab loaded before a deploy can then still call a function
+        // that only moved to another file. The names are unique (`functions.test.ts`).
+        generateFunctionId: ({ functionName }) =>
+          createHash('sha256').update(functionName).digest('hex'),
+      },
       importProtection: {
         client: {
           // Server-function handlers are stripped first. A remaining database,

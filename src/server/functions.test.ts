@@ -41,6 +41,12 @@ describe('server functions', () => {
     }
   })
 
+  it('gives every server function a name of its own', () => {
+    // The id a browser calls a function by follows from its name (`vite.config.ts`).
+    const names = functions.map(({ name }) => name)
+    expect(new Set(names).size).toBe(names.length)
+  })
+
   it('refuses a visitor in every function that is not open to visitors', () => {
     const unguarded = functions
       .filter(({ source }) => !/\.handler\(\s*(forAdmin|adminOrNull)\(/.test(source))

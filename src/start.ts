@@ -1,4 +1,5 @@
 import { createCsrfMiddleware, createStart } from '@tanstack/react-start'
+import { serverFunctionFetch } from './reload'
 
 const csrfMiddleware = createCsrfMiddleware({
   filter: (ctx) => ctx.handlerType === 'serverFn',
@@ -13,4 +14,6 @@ export const startInstance = createStart(() => ({
   // The archive lives in browser memory for now, so screens render in the browser.
   defaultSsr: false,
   requestMiddleware: [csrfMiddleware],
+  // A tab loaded before a deploy loads itself again when its call fails (see `src/reload.ts`).
+  serverFns: { fetch: serverFunctionFetch },
 }))
