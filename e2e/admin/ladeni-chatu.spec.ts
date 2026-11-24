@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { openAdminPage, signIn } from '../support/admin'
-import { chatSessionIds, forgetChatTraces, resetArchive } from '../support/database'
+import { chatConversationIds, forgetChatTraces, resetArchive } from '../support/database'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const FIRST = 'Kdo vymění veřejné osvětlení?'
@@ -47,11 +47,12 @@ async function tryQuestion(page: Page, question: string) {
   await expect(box).toHaveValue('')
 }
 
-/** The rows of the list of sessions; shown only while no session is open. */
-const sessionRows = (page: Page) => page.locator('.sessions .session:has(.session__open)')
-/** The open session: its questions in order. */
-const sessionView = (page: Page) => page.locator('.trace-session')
-const questionTraces = (page: Page) => sessionView(page).locator('.session')
+/** The rows of the list of conversations; shown only while no conversation is open. */
+const conversationRows = (page: Page) =>
+  page.locator('.conversations .conversation:has(.conversation__open)')
+/** The open conversation: its questions in order. */
+const conversationView = (page: Page) => page.locator('.trace-conversation')
+const questionTraces = (page: Page) => conversationView(page).locator('.conversation')
 const questionTrace = (page: Page, question: string) =>
   questionTraces(page).filter({
     has: page.locator(`summary[aria-label="Zobrazit postup: ${question}"]`),
@@ -60,13 +61,13 @@ const questionTrace = (page: Page, question: string) =>
 const historyBlock = (page: Page, question: string) =>
   questionTrace(page, question).locator('.call').filter({ hasText: 'Historie pro model' })
 
-/** The filter of the list of sessions by what the visitor said of them. */
+/** The filter of the list of conversations by what the visitor said of them. */
 const feedbackFilter = (page: Page) => page.getByRole('group', { name: 'Hodnocení', exact: true })
 const filterChoice = (page: Page, name: string) =>
   feedbackFilter(page).getByRole('button', { name, exact: true })
-const sessionTitles = (page: Page) => sessionRows(page).locator('.session__title')
-/** The labels of feedback on a row: of a session in the list, or of a question in an open session. */
-const feedbackLabels = (row: Locator) => row.locator('.session__feedback')
+const conversationTitles = (page: Page) => conversationRows(page).locator('.conversation__title')
+/** The labels of feedback on a row: of a conversation in the list, or of a question in an open conversation. */
+const feedbackLabels = (row: Locator) => row.locator('.conversation__feedback')
 
 async function openQuestion(page: Page, question: string) {
   const trace = questionTrace(page, question)
@@ -98,7 +99,7 @@ test.describe('Ladění chatu', () => {
 
     await tryQuestion(page, FIRST)
 
-    // The question opened a session of its own, with the trace unfolded.
+    // The question opened a conversation of its own, with the trace unfolded.
     await expect(page.getByRole('heading', { name: 'Rozhovor' })).toBeVisible()
     const trace = questionTraces(page).first()
     await expect(trace.locator('summary').first()).toContainText(FIRST)
@@ -225,8 +226,8 @@ test.describe('Ladění chatu', () => {
 
     await signIn(page)
     await openAdminPage(page, 'Ladění chatu')
-    await expect(sessionRows(page)).toHaveCount(1)
-    await expect(sessionRows(page)).toContainText('Otázek: 2')
+    await expect(conversationRows(page)).toHaveCount(1)
+    await expect(conversationRows(page)).toContainText('Otázek: 2')
     await page.getByRole('button', { name: `Otevřít rozhovor: ${FIRST}` }).click()
     // The follow-up found nothing by its own words and searched again with the first question.
     const followUp = questionTrace(page, 'Kolik?')
@@ -245,13 +246,13 @@ test.describe('Ladění chatu', () => {
 
     await signIn(page)
     await openAdminPage(page, 'Ladění chatu')
-    await expect(sessionRows(page)).toHaveCount(1)
-    await expect(sessionRows(page).locator('.session__title')).toHaveText(FIRST)
-    await expect(sessionRows(page)).toContainText('Otázek: 2')
+    await expect(conversationRows(page)).toHaveCount(1)
+    await expect(conversationRows(page).locator('.conversation__title')).toHaveText(FIRST)
+    await expect(conversationRows(page)).toContainText('Otázek: 2')
 
     await page.getByRole('button', { name: `Otevřít rozhovor: ${FIRST}` }).click()
     await expect(page.getByRole('heading', { name: 'Rozhovor' })).toBeVisible()
-    const id = await sessionView(page).locator('.trace-session__id code').textContent()
+    const id = await conversationView(page).locator('.trace-conversation__id code').textContent()
     expect(id).toMatch(UUID)
     await context.grantPermissions(['clipboard-read', 'clipboard-write'])
     await page.getByRole('button', { name: 'Kopírovat id' }).click()
@@ -361,7 +362,7 @@ test.describe('Ladění chatu', () => {
 
     await page.getByRole('button', { name: 'Nový rozhovor' }).click()
     await expect(page.getByRole('heading', { name: 'Rozhovor' })).toHaveCount(0)
-    await expect(sessionRows(page)).toHaveCount(1)
+    await expect(conversationRows(page)).toHaveCount(1)
 
     await tryQuestion(page, 'Kolik?')
     await expect(questionTraces(page)).toHaveCount(1)
@@ -371,8 +372,10 @@ test.describe('Ladění chatu', () => {
     await expect(historyBlock(page, 'Kolik?')).toContainText('Model nedostal žádnou historii')
 
     await page.getByRole('button', { name: 'Nový rozhovor' }).click()
-    await expect(sessionRows(page)).toHaveCount(2)
-    await expect(sessionRows(page).first().locator('.session__title')).toHaveText('Kolik?')
+    await expect(conversationRows(page)).toHaveCount(2)
+    await expect(conversationRows(page).first().locator('.conversation__title')).toHaveText(
+      'Kolik?',
+    )
   })
 
   test('Otázka se známým id rozhovoru naváže na rozhovor a historii dodá server', async ({
@@ -385,7 +388,7 @@ test.describe('Ladění chatu', () => {
     await openAdminPage(page, 'Ladění chatu')
     await page.getByRole('button', { name: `Otevřít rozhovor: ${FIRST}` }).click()
     await expect(questionTraces(page)).toHaveCount(1)
-    // The administrator's page sent only the session id; the history came from the server.
+    // The administrator's page sent only the conversation id; the history came from the server.
     await tryQuestion(page, 'Kolik?')
     await expect(questionTraces(page)).toHaveCount(2)
     const followUp = questionTrace(page, 'Kolik?')
@@ -399,22 +402,22 @@ test.describe('Ladění chatu', () => {
   test('Otázka s neznámým id rozhovoru začne nový rozhovor', async ({ page }) => {
     await page.goto('/')
     await visitorAsks(page, FIRST)
-    const [forgotten] = await chatSessionIds()
+    const [forgotten] = await chatConversationIds()
     expect(forgotten).toMatch(UUID)
     await forgetChatTraces()
 
-    // The panel still sends the old id; the server knows no such session and starts another.
+    // The panel still sends the old id; the server knows no such conversation and starts another.
     await visitorAsks(page, 'Kolik?')
-    const remaining = await chatSessionIds()
+    const remaining = await chatConversationIds()
     expect(remaining).toHaveLength(1)
     expect(remaining[0]).not.toBe(forgotten)
 
     await signIn(page)
     await openAdminPage(page, 'Ladění chatu')
-    await expect(sessionRows(page)).toHaveCount(1)
-    await expect(sessionRows(page)).toContainText('Otázek: 1')
+    await expect(conversationRows(page)).toHaveCount(1)
+    await expect(conversationRows(page)).toContainText('Otázek: 1')
     await page.getByRole('button', { name: 'Otevřít rozhovor: Kolik?' }).click()
-    await expect(sessionView(page).locator('.trace-session__id code')).toHaveText(
+    await expect(conversationView(page).locator('.trace-conversation__id code')).toHaveText(
       remaining[0] ?? '',
     )
     await expect(questionTraces(page)).toHaveCount(1)
@@ -431,9 +434,9 @@ test.describe('Ladění chatu', () => {
 
     await signIn(page)
     await openAdminPage(page, 'Ladění chatu')
-    await expect(sessionRows(page)).toHaveCount(1)
-    await expect(sessionRows(page)).toContainText('Otázek: 3')
-    await expect(sessionRows(page).locator('.status--failed')).toBeVisible()
+    await expect(conversationRows(page)).toHaveCount(1)
+    await expect(conversationRows(page)).toContainText('Otázek: 3')
+    await expect(conversationRows(page).locator('.status--failed')).toBeVisible()
     await page.getByRole('button', { name: `Otevřít rozhovor: ${FIRST}` }).click()
     await expect(questionTraces(page)).toHaveCount(3)
 
@@ -454,8 +457,8 @@ test.describe('Ladění chatu', () => {
 
     await signIn(page)
     await openAdminPage(page, 'Ladění chatu')
-    await expect(sessionRows(page)).toHaveCount(1)
-    await expect(feedbackLabels(sessionRows(page))).toHaveText(['Pomohla: 1', 'Nepomohla: 1'])
+    await expect(conversationRows(page)).toHaveCount(1)
+    await expect(feedbackLabels(conversationRows(page))).toHaveText(['Pomohla: 1', 'Nepomohla: 1'])
 
     await page.getByRole('button', { name: `Otevřít rozhovor: ${FIRST}` }).click()
     await expect(questionTraces(page)).toHaveCount(3)
@@ -482,24 +485,24 @@ test.describe('Ladění chatu', () => {
     await signIn(page)
     await openAdminPage(page, 'Ladění chatu')
     await expect(filterChoice(page, 'Vše')).toHaveAttribute('aria-pressed', 'true')
-    // The session asked in last is the first of the list.
-    await expect(sessionTitles(page)).toHaveText([UNRATED, 'Kolik?', FIRST])
+    // The conversation asked in last is the first of the list.
+    await expect(conversationTitles(page)).toHaveText([UNRATED, 'Kolik?', FIRST])
 
     await filterChoice(page, 'S hodnocením').click()
     await expect(filterChoice(page, 'S hodnocením')).toHaveAttribute('aria-pressed', 'true')
     await expect(filterChoice(page, 'Vše')).toHaveAttribute('aria-pressed', 'false')
-    await expect(sessionTitles(page)).toHaveText(['Kolik?', FIRST])
+    await expect(conversationTitles(page)).toHaveText(['Kolik?', FIRST])
 
     await filterChoice(page, 'Kladné').click()
-    await expect(sessionTitles(page)).toHaveText([FIRST])
-    await expect(feedbackLabels(sessionRows(page))).toHaveText(['Pomohla: 1'])
+    await expect(conversationTitles(page)).toHaveText([FIRST])
+    await expect(feedbackLabels(conversationRows(page))).toHaveText(['Pomohla: 1'])
 
     await filterChoice(page, 'Záporné').click()
-    await expect(sessionTitles(page)).toHaveText(['Kolik?'])
-    await expect(feedbackLabels(sessionRows(page))).toHaveText(['Nepomohla: 1'])
+    await expect(conversationTitles(page)).toHaveText(['Kolik?'])
+    await expect(feedbackLabels(conversationRows(page))).toHaveText(['Nepomohla: 1'])
 
     await filterChoice(page, 'Vše').click()
-    await expect(sessionTitles(page)).toHaveText([UNRATED, 'Kolik?', FIRST])
+    await expect(conversationTitles(page)).toHaveText([UNRATED, 'Kolik?', FIRST])
   })
 
   test('Rozhovor s kladným i záporným hodnocením je v obou filtrech', async ({ page }) => {
@@ -513,10 +516,10 @@ test.describe('Ladění chatu', () => {
     await openAdminPage(page, 'Ladění chatu')
     await filterChoice(page, 'Kladné').click()
     await expect(filterChoice(page, 'Kladné')).toHaveAttribute('aria-pressed', 'true')
-    await expect(sessionTitles(page)).toHaveText([FIRST])
+    await expect(conversationTitles(page)).toHaveText([FIRST])
     await filterChoice(page, 'Záporné').click()
     await expect(filterChoice(page, 'Záporné')).toHaveAttribute('aria-pressed', 'true')
-    await expect(sessionTitles(page)).toHaveText([FIRST])
+    await expect(conversationTitles(page)).toHaveText([FIRST])
   })
 
   test('Filtr zůstane po novém načtení stránky', async ({ page }) => {
@@ -535,6 +538,6 @@ test.describe('Ladění chatu', () => {
     await expect(page.getByText('Žádný rozhovor s tímto hodnocením.')).toBeVisible()
 
     await filterChoice(page, 'Kladné').click()
-    await expect(sessionTitles(page)).toHaveText([FIRST])
+    await expect(conversationTitles(page)).toHaveText([FIRST])
   })
 })

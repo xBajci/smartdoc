@@ -4,6 +4,7 @@ import type { DocumentPage, DocumentQuery } from '../archive/types'
 import { getDatabase } from '../db/client'
 import { categories, documents } from '../db/schema'
 import { listColumns, toDocument, usageByDocument } from './archive-service'
+import { visibleTo } from './published'
 
 /** Marks that the database puts around a found word; they never occur in a real text. */
 const HIT_START = '\u0001'
@@ -52,7 +53,7 @@ export async function searchDocuments(
   includeUnpublished: boolean,
 ): Promise<DocumentPage> {
   const database = getDatabase()
-  const visible = includeUnpublished ? undefined : eq(documents.status, 'ready')
+  const visible = visibleTo(includeUnpublished)
 
   const sought = soughtWords(query.q)
 
@@ -120,7 +121,7 @@ export async function searchDocuments(
       headline:
         sought === null
           ? sql<string | null>`null`
-          : sql<string>`ts_headline('cs_simple', left(${documents.autoDescription}, 500000), ${sought}, ${HEADLINE_OPTIONS})`,
+          : sql<string>`ts_headline('cs_simple', left(${documents.extractedText}, 500000), ${sought}, ${HEADLINE_OPTIONS})`,
     })
     .from(documents)
     .innerJoin(categories, eq(categories.id, documents.categoryId))

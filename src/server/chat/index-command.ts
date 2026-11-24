@@ -46,7 +46,7 @@ async function pagesOf(row: (typeof waiting)[number]): Promise<PageText[]> {
       return layers.map((text, index) => ({ page: index + 1, text }))
     }
   }
-  return [{ page: null, text: row.autoDescription }]
+  return [{ page: null, text: row.extractedText }]
 }
 
 let pieces = 0

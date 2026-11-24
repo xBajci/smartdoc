@@ -1,5 +1,5 @@
 import { desc, sql } from 'drizzle-orm'
-import type { UsageReport } from '../archive/types'
+import type { UsageReport } from '../ai/types'
 import { getDatabase } from '../db/client'
 import { aiUsage } from '../db/schema'
 

@@ -1,6 +1,6 @@
 import { MockLanguageModelV4 } from 'ai/test'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ChatTurn } from '../../archive/types'
+import type { ChatTurn } from '../../chat/types'
 import { firstQueries, getRewriter } from './rewriter'
 
 // The E2E tests run the fake rewriter; what the real one does with the model's

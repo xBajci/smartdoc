@@ -2270,11 +2270,11 @@ th[aria-sort] .sort-header .icon {
   }
 }
 
-/* --- Sessions and skills --------------------------------------------------- */
+/* --- Conversations and skills --------------------------------------------------- */
 
-.sessions,
+.conversations,
 .skills,
-.session__calls {
+.conversation__calls {
   display: grid;
   gap: 10px;
   margin: 0;
@@ -2282,13 +2282,13 @@ th[aria-sort] .sort-header .icon {
   list-style: none;
 }
 
-.session {
+.conversation {
   border: 1px solid var(--line);
   border-radius: var(--radius);
 }
 
-.session summary,
-.session__open {
+.conversation summary,
+.conversation__open {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -2299,8 +2299,8 @@ th[aria-sort] .sort-header .icon {
   cursor: pointer;
 }
 
-/* A row of the list of sessions is a button: it opens the session instead of unfolding. */
-.session__open {
+/* A row of the list of conversations is a button: it opens the conversation instead of unfolding. */
+.conversation__open {
   width: 100%;
   border: 0;
   background: none;
@@ -2308,23 +2308,23 @@ th[aria-sort] .sort-header .icon {
   text-align: left;
 }
 
-.session__open:hover {
+.conversation__open:hover {
   background-color: var(--surface-hover, rgba(0, 0, 0, 0.03));
 }
 
-.session__title {
+.conversation__title {
   flex: 1 1 240px;
   color: var(--ink);
   font-size: 1rem;
 }
 
-.session__cost {
+.conversation__cost {
   color: var(--ink);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
 
-.session details > :not(summary) {
+.conversation details > :not(summary) {
   margin: 0 14px 14px;
 }
 
@@ -3611,17 +3611,17 @@ a.icon-button {
   margin: 8px 0;
 }
 
-.trace-session {
+.trace-conversation {
   display: grid;
   gap: 10px;
 }
 
-.trace-session h2 {
+.trace-conversation h2 {
   margin: 0;
   font-size: 1.125rem;
 }
 
-.trace-session__id {
+.trace-conversation__id {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -3630,12 +3630,12 @@ a.icon-button {
   color: var(--ink-soft);
 }
 
-.trace-session__id code {
+.trace-conversation__id code {
   font-family: var(--font-mono);
   font-size: 0.875em;
 }
 
-.session-filter {
+.conversation-filter {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -5588,20 +5588,20 @@ body {
   font-weight: 500;
 }
 
-.session__feedback--helpful {
+.conversation__feedback--helpful {
   border-color: #b9e0c0;
   background: #e7f6e9;
   color: #1d6b34;
 }
 
-.session__feedback--unhelpful {
+.conversation__feedback--unhelpful {
   border-color: #f3c1bc;
   background: #fdebe9;
   color: #b3261e;
 }
 
 .skill,
-.session,
+.conversation,
 .assessment {
   border-color: #e4e7e5;
   border-radius: 12px;

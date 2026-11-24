@@ -16,19 +16,21 @@ import {
 } from '../archive/upload'
 import { getDatabase } from '../db/client'
 import { aiUsage, categories, documents, type CategoryRow, type DocumentRow } from '../db/schema'
+import { atUpload, byAdministrator } from './document-changes'
+import { isPublished, visibleTo } from './published'
 import { getStorage } from './storage'
 import { makeThumbnail } from './thumbnail'
 import { titleFromFilename } from './title'
 
 /** Everything about a document except its content, which is long and never shown in a list. */
 const {
-  autoDescription: _content,
+  extractedText: _content,
   searchVector: _searchVector,
   ...listColumns
 } = getTableColumns(documents)
 export { listColumns }
 
-export type ListedRow = Omit<DocumentRow, 'autoDescription' | 'searchVector'>
+export type ListedRow = Omit<DocumentRow, 'extractedText' | 'searchVector'>
 
 export function toDocument(row: ListedRow, usage: DocumentUsage | null = null): ArchiveDocument {
   return {
@@ -79,9 +81,7 @@ export async function findDocuments(
     .select(listColumns)
     .from(documents)
     .where(inArray(documents.id, [...ids]))
-  return rows
-    .filter((row) => includeUnpublished || row.status === 'ready')
-    .map((row) => toDocument(row))
+  return rows.filter((row) => includeUnpublished || isPublished(row)).map((row) => toDocument(row))
 }
 
 /** Models and cost of every document that was read with AI, added up over all its runs. */
@@ -110,9 +110,7 @@ export async function listCategories(includeUnpublished: boolean): Promise<Categ
       .select()
       .from(categories)
       .orderBy(asc(categories.isFallback), asc(categories.position)),
-    (includeUnpublished ? counting : counting.where(eq(documents.status, 'ready'))).groupBy(
-      documents.categoryId,
-    ),
+    counting.where(visibleTo(includeUnpublished)).groupBy(documents.categoryId),
   ])
   const totals = new Map(counts.map((row) => [row.categoryId, row.total]))
   return rows.map((row) => toCategory(row, totals.get(row.id) ?? 0, includeUnpublished))
@@ -126,7 +124,7 @@ export async function findDocumentRow(id: string): Promise<DocumentRow | undefin
 /** The text processing took from the document. Kept out of the list: it can be very long. */
 export async function findExtractedText(id: string): Promise<string> {
   const [row] = await getDatabase()
-    .select({ text: documents.autoDescription })
+    .select({ text: documents.extractedText })
     .from(documents)
     .where(eq(documents.id, id))
   return row?.text ?? ''
@@ -231,9 +229,8 @@ export async function createDocument(input: NewDocument): Promise<CreateDocument
         storageKey: input.storageKey,
         thumbnailKey,
         categoryId,
-        categorySource: category === undefined ? 'default' : 'manual',
         issuedYear,
-        issuedYearSource: issuedYear === null ? null : 'auto',
+        ...atUpload(category !== undefined, issuedYear),
         customDescription: input.customDescription.trim(),
         // Not public yet: processing reads the content first.
         status: 'queued',
@@ -257,30 +254,9 @@ export async function createDocument(input: NewDocument): Promise<CreateDocument
 export async function updateDocument(id: string, changes: DocumentChanges) {
   const current = await findDocumentRow(id)
   if (current === undefined) return
-  const title = changes.title.trim() || current.title
-  // A whole date says the year too.
-  const issuedYear =
-    changes.issuedOn === null ? changes.issuedYear : Number(changes.issuedOn.slice(0, 4))
-  const yearChanged = issuedYear !== current.issuedYear || changes.issuedOn !== current.issuedOn
   await getDatabase()
     .update(documents)
-    .set({
-      title,
-      // A name the administrator typed is theirs; processing must not replace it later.
-      titleSource: title === current.title ? current.titleSource : 'manual',
-      categoryId: changes.categoryId,
-      // A category the administrator chose is theirs; processing must not replace it later.
-      categorySource: changes.categoryId === current.categoryId ? current.categorySource : 'manual',
-      customDescription: changes.customDescription.trim(),
-      issuedYear,
-      issuedOn: changes.issuedOn,
-      // A date the administrator typed is theirs; processing must not overwrite it later.
-      issuedYearSource: yearChanged
-        ? issuedYear === null
-          ? null
-          : 'manual'
-        : current.issuedYearSource,
-    })
+    .set(byAdministrator(current, changes))
     .where(eq(documents.id, id))
 }
 

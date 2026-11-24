@@ -56,7 +56,7 @@ async function upload(
   page: Page,
   file: TestFile,
   description = '',
-  outcome: 'Připraveno' | 'Chyba' = 'Připraveno',
+  outcome: 'Zveřejněno' | 'Chyba' = 'Zveřejněno',
 ) {
   await signIn(page)
   await openUploadWindow(page)
@@ -87,7 +87,7 @@ test.describe('Zpracování obsahu dokumentu', () => {
     page,
   }) => {
     await upload(page, demoFile('foto-kostel-leto.jpg', 'IMG_4521.jpg'))
-    await expect(adminRow(page, 'IMG_4521 (název z obsahu)')).toContainText('Připraveno')
+    await expect(adminRow(page, 'IMG_4521 (název z obsahu)')).toContainText('Zveřejněno')
 
     await expect(await extractedText(page, 'IMG_4521 (název z obsahu)')).toHaveText(
       'Zkušební popis obrázku ze souboru IMG_4521.jpg. Popis má několik vět.',
@@ -113,7 +113,7 @@ test.describe('Zpracování obsahu dokumentu', () => {
 
   test('PDF s textovou vrstvou dostane název z obsahu a uloží celý text', async ({ page }) => {
     await upload(page, demoFile('projekt-cyklostezka.pdf', 'studie-stezky.pdf'))
-    await expect(adminRow(page, 'studie-stezky.pdf')).toContainText('Připraveno')
+    await expect(adminRow(page, 'studie-stezky.pdf')).toContainText('Zveřejněno')
 
     const text = await extractedText(page, 'studie-stezky')
     await expect(text).toContainText('strana 1 z 2')
@@ -193,7 +193,7 @@ test.describe('Zpracování obsahu dokumentu', () => {
       page.getByText('Zpracování dokumentu „Kronika obce, rok 1952“ skončilo.'),
     ).toBeVisible()
     const row = adminRow(page, 'Kronika obce, rok 1952')
-    await expect(row).toContainText('Připraveno')
+    await expect(row).toContainText('Zveřejněno')
     await expect(row).not.toContainText('Strany 4 až 9 jsou poškozené')
 
     await openLibrary(page)
@@ -214,7 +214,7 @@ test.describe('Zpracování obsahu dokumentu', () => {
     await uploadWindow(page).getByRole('button', { name: 'Uložit 1 soubor' }).click()
 
     const row = adminRow(page, 'zapis-rady.pdf')
-    await expect(row).toContainText('Připraveno')
+    await expect(row).toContainText('Zveřejněno')
     await expect(row).toContainText('Zápisy')
   })
 
@@ -228,7 +228,7 @@ test.describe('Zpracování obsahu dokumentu', () => {
     await uploadWindow(page).getByRole('button', { name: 'Uložit 1 soubor' }).click()
 
     const row = adminRow(page, 'zapis-komise.pdf')
-    await expect(row).toContainText('Připraveno')
+    await expect(row).toContainText('Zveřejněno')
     await expect(row).toContainText('Smlouvy')
     await expect(row).not.toContainText('Zápisy')
   })
@@ -330,7 +330,7 @@ test.describe('Zpracování obsahu dokumentu', () => {
     await openUploadWindow(page)
     await chooseFiles(page, demoFile('zapis-zastupitelstvo-1998-sken.pdf', 'zapis-sken.pdf'))
     await uploadWindow(page).getByRole('button', { name: 'Uložit 1 soubor' }).click()
-    await expect(adminRow(page, 'zapis-sken.pdf')).toContainText('Připraveno')
+    await expect(adminRow(page, 'zapis-sken.pdf')).toContainText('Zveřejněno')
 
     await adminRow(page, 'zapis-sken.pdf').click()
     const call = page

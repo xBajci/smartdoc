@@ -1,6 +1,6 @@
 import { generateText, Output } from 'ai'
 import { z } from 'zod'
-import type { ChatTraceStep, ChatTurn } from '../../archive/types'
+import type { ChatTraceStep, ChatTurn } from '../../chat/types'
 import { FAKE_USAGE, reasonOf, spent, unspent } from '../ai/calls'
 import { languageModel, modelName, modelSetting } from '../ai/models'
 import { turnsAsMessages } from './history'

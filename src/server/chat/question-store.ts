@@ -1,5 +1,5 @@
 import { and, asc, count, eq, gt, isNotNull } from 'drizzle-orm'
-import type { ModelCall } from '../../archive/types'
+import type { ModelCall } from '../../ai/types'
 import { getDatabase } from '../../db/client'
 import { chatTraces } from '../../db/schema'
 import { storeCalls } from '../ai/calls'
@@ -13,7 +13,7 @@ export type KeptQuestion = Required<
   Pick<
     typeof chatTraces.$inferInsert,
     | 'id'
-    | 'sessionId'
+    | 'conversationId'
     | 'question'
     | 'history'
     | 'answer'
@@ -37,8 +37,8 @@ export type KeptQuestion = Required<
 export interface QuestionStore {
   /** How many questions visitors asked since a time; with `askerHash`, only those of one visitor. */
   askedSince(since: Date, askerHash?: string): Promise<number>
-  /** The earlier questions of a session, oldest first; empty when no question has the id. */
-  earlier(sessionId: string): Promise<EarlierTrace[]>
+  /** The earlier questions of a conversation, oldest first; empty when no question has the id. */
+  earlier(conversationId: string): Promise<EarlierTrace[]>
   /** Writes the trace of a question and the calls to models it made. */
   keep(question: KeptQuestion, calls: readonly ModelCall[]): Promise<void>
 }
@@ -61,7 +61,7 @@ export const postgresStore: QuestionStore = {
     return row?.total ?? 0
   },
 
-  earlier(sessionId) {
+  earlier(conversationId) {
     return getDatabase()
       .select({
         question: chatTraces.question,
@@ -71,7 +71,7 @@ export const postgresStore: QuestionStore = {
         messages: chatTraces.messages,
       })
       .from(chatTraces)
-      .where(eq(chatTraces.sessionId, sessionId))
+      .where(eq(chatTraces.conversationId, conversationId))
       .orderBy(asc(chatTraces.createdAt))
   },
 

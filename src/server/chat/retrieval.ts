@@ -8,11 +8,12 @@ import type {
   ChatRerank,
   ChatTraceStep,
   ChatWeights,
-} from '../../archive/types'
+} from '../../chat/types'
 import { getDatabase } from '../../db/client'
 import { documentChunks, documents } from '../../db/schema'
 import { reasonOf, spent, unspent } from '../ai/calls'
 import { modelName } from '../ai/models'
+import { published } from '../published'
 import { branchWeights, orderByScore, type Decider } from './decisions'
 import type { Embedder } from './embedder'
 import { fuseRanks } from './fusion'
@@ -32,10 +33,7 @@ export interface SearchScope {
 
 /** Only public documents, and only the chosen ones when the visitor chose some. */
 function allowed({ scope, documentIds }: SearchScope): SQL | undefined {
-  return and(
-    eq(documents.status, 'ready'),
-    scope === 'documents' ? inArray(documents.id, documentIds) : undefined,
-  )
+  return and(published(), scope === 'documents' ? inArray(documents.id, documentIds) : undefined)
 }
 
 const hitColumns = {

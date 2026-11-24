@@ -1,8 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router'
+import type { UsageTotals } from '~/ai/types'
 import { formatUsd } from '~/archive/format'
-import type { DocumentFormat, UsageTotals } from '~/archive/types'
+import type { DocumentFormat } from '~/archive/types'
 import { cs } from '~/copy/cs'
-import { getUsageFn } from '~/server/archive'
+import { getUsageFn } from '~/server/ai/functions'
 
 export const Route = createFileRoute('/sprava/naklady')({
   loader: () => getUsageFn(),

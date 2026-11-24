@@ -1,4 +1,5 @@
 import { findDocumentRow } from './archive-service'
+import { isPublished } from './published'
 import { isAdmin } from './session'
 import { getStorage } from './storage'
 
@@ -6,7 +7,7 @@ import { getStorage } from './storage'
 async function readableDocument(id: string) {
   const row = await findDocumentRow(id)
   if (row === undefined) return null
-  if (row.status !== 'ready' && !isAdmin()) return null
+  if (!isPublished(row) && !isAdmin()) return null
   return row
 }
 

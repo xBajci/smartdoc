@@ -15,12 +15,9 @@ import {
   timestamp,
   vector,
 } from 'drizzle-orm/pg-core'
-import {
-  CALL_OPERATIONS,
-  type ChatTraceStep,
-  type ChatTurn,
-  type ProcessingStep,
-} from '../archive/types'
+import { CALL_OPERATIONS } from '../ai/types'
+import type { ChatTraceStep, ChatTurn } from '../chat/types'
+import type { ProcessingStep } from '../processing/types'
 
 /** Postgres' own type for a text prepared for full-text search. */
 const tsvector = customType<{ data: string }>({ dataType: () => 'tsvector' })
@@ -78,8 +75,11 @@ export const documents = pgTable(
     issuedOn: date('issued_on'),
     issuedYearSource: text('issued_year_source', { enum: ['auto', 'manual'] }),
     customDescription: text('custom_description').notNull().default(''),
-    /** Written by processing: the whole text of a PDF, or a paragraph about an image. */
-    autoDescription: text('auto_description').notNull().default(''),
+    /**
+     * Written by processing: the whole text of a PDF, or a paragraph about an image.
+     * The column keeps the name it got when it held only the paragraph.
+     */
+    extractedText: text('auto_description').notNull().default(''),
     /** Written by processing: one or two sentences shown to visitors. */
     shortDescription: text('short_description').notNull().default(''),
     /** Only a `ready` document is public. */
@@ -102,7 +102,7 @@ export const documents = pgTable(
         setweight(to_tsvector('cs_simple', ${documents.title}), 'A') ||
         setweight(to_tsvector('cs_simple', regexp_replace(${documents.originalFilename}, '[^[:alnum:]]+', ' ', 'g')), 'B') ||
         setweight(to_tsvector('cs_simple', ${documents.customDescription} || ' ' || ${documents.shortDescription}), 'B') ||
-        setweight(to_tsvector('cs_simple', left(${documents.autoDescription}, ${sql.raw(String(INDEXED_CONTENT_CHARACTERS))})), 'D')
+        setweight(to_tsvector('cs_simple', left(${documents.extractedText}, ${sql.raw(String(INDEXED_CONTENT_CHARACTERS))})), 'D')
       )`,
     ),
   },
@@ -114,15 +114,15 @@ export const documents = pgTable(
 
 /**
  * One row per call to a model: what was asked, what came back and what it
- * cost. The calls of one processing run form a session the administrator can
- * read. Rows outlive their document: the
- * money was spent even if the document is removed later.
+ * cost. Calls that belong together share a `run_id`: the calls of one
+ * processing run, of one chat question, or of one run of a command. Rows
+ * outlive their document: the money was spent even if the document is removed later.
  */
 export const aiUsage = pgTable(
   'ai_usage',
   {
     id: serial('id').primaryKey(),
-    /** All calls of one processing run share this id. */
+    /** All calls of one run share this id; a chat question uses the id of its trace. */
     runId: text('run_id').notNull(),
     documentId: text('document_id').references(() => documents.id, { onDelete: 'set null' }),
     /** Name of the document at the time, kept for when the document is gone. */
@@ -130,8 +130,11 @@ export const aiUsage = pgTable(
     /** `null` for a call that did not read a document, i.e. the optimizer. */
     format: text('format', { enum: ['pdf', 'image'] }),
     operation: text('operation', { enum: CALL_OPERATIONS }).notNull(),
-    /** The place the call was made at (see `SkillUse`); older rows hold the key of one skill here. */
-    skillKey: text('skill_key'),
+    /**
+     * The place the call was made at (see `SkillUse`). The column is named after
+     * what older rows hold here: the key of one skill.
+     */
+    use: text('skill_key'),
     skillVersion: integer('skill_version').notNull().default(0),
     /** Every skill the call was told, with the version of its text; 0 is the starting text. */
     skills: jsonb('skills').$type<{ key: string; version: number }[]>(),
@@ -222,10 +225,10 @@ export const chatTraces = pgTable(
   {
     /** The same id as `run_id` of the question's rows in `ai_usage`. */
     id: text('id').primaryKey(),
-    /** A random UUID; whoever has it may continue the conversation. Traces older than sessions carry their own id. */
-    sessionId: text('session_id').notNull(),
+    /** A random UUID; whoever has it may continue the conversation. Traces older than conversations carry their own id. */
+    conversationId: text('session_id').notNull(),
     question: text('question').notNull(),
-    /** The earlier turns of the session exactly as the model received them; empty for the first question. */
+    /** The earlier turns of the conversation exactly as the model received them; empty for the first question. */
     history: jsonb('history').$type<ChatTurn[]>().notNull().default([]),
     answer: text('answer').notNull().default(''),
     /** Why the question got no answer; `null` when it went well. */
@@ -238,7 +241,7 @@ export const chatTraces = pgTable(
     steps: jsonb('steps').$type<ChatTraceStep[]>().notNull(),
     /**
      * The question, the first search and everything the chat model wrote, as
-     * messages of the model. Later questions of the session send them again
+     * messages of the model. Later questions of the conversation send them again
      * unchanged, so the provider can serve them from its cache. `null` in
      * traces older than this and in a question that failed.
      */
@@ -261,7 +264,7 @@ export const chatTraces = pgTable(
   },
   (table) => [
     index('chat_traces_created_at_idx').on(table.createdAt),
-    index('chat_traces_session_idx').on(table.sessionId, table.createdAt),
+    index('chat_traces_session_idx').on(table.conversationId, table.createdAt),
   ],
 )
 
@@ -270,9 +273,10 @@ export const chatTraces = pgTable(
  * administrator added (id "vlastni/<name>") this row is the skill: its name,
  * its places and whether it is on. For a starting skill (id of its file) a
  * row is there only when its places were changed, and holds those places.
- * The text of every skill is in `skill_versions`.
+ * The text of every skill is in `skill_versions`. The table is named after
+ * the first kind of row it held.
  */
-export const customSkills = pgTable('custom_skills', {
+export const skillSettings = pgTable('custom_skills', {
   /** Never changes: stored records point at it. */
   id: text('id').primaryKey(),
   title: text('title').notNull(),

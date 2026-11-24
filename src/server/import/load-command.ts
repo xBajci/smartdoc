@@ -3,9 +3,9 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { eq } from 'drizzle-orm'
 import { calendarDay } from '../../archive/query'
-import type { ProcessingStep } from '../../archive/types'
 import { closeDatabase, getDatabase } from '../../db/client'
 import { categories, documents, processingRuns } from '../../db/schema'
+import type { ProcessingStep } from '../../processing/types'
 import { storeCalls } from '../ai/calls'
 import type { PageText } from '../chat/chunks'
 import { getEmbedder } from '../chat/embedder'
@@ -197,7 +197,7 @@ for (const id of ids) {
         issuedYear: issuedOn === null ? read.issuedYear : Number(issuedOn.slice(0, 4)),
         issuedOn,
         issuedYearSource: read.issuedYear === null ? null : 'auto',
-        autoDescription: text,
+        extractedText: text,
         shortDescription: read.shortDescription.trim(),
         status: 'ready',
         hasText: text !== '',

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { ChatPassage } from '../../archive/types'
+import type { ChatPassage } from '../../chat/types'
 import { resolveCitations } from './citations'
 
 function passage(number: number, documentId: string, page: number | null): ChatPassage {

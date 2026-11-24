@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ChatProgress, ChatQuestion, ChatUpdate, ModelCall } from '../../archive/types'
+import type { ModelCall } from '../../ai/types'
+import type { ChatProgress, ChatQuestion, ChatUpdate } from '../../chat/types'
 import { defaultSkills } from '../ai/skills'
 import { SUMMARY_LEAD } from './history'
 import {
@@ -30,8 +31,10 @@ function memoryStore() {
           question.askerHash !== null &&
           (askerHash === undefined || question.askerHash === askerHash),
       ).length,
-    earlier: async (sessionId) =>
-      kept.flatMap(({ question }) => (question.sessionId === sessionId ? [question] : [])),
+    earlier: async (conversationId) =>
+      kept.flatMap(({ question }) =>
+        question.conversationId === conversationId ? [question] : [],
+      ),
     keep: async (question, calls) => {
       kept.push({ question, calls: [...calls], at: new Date() })
     },
@@ -108,21 +111,21 @@ const world = (): QuestionWorld => ({
   search,
 })
 
-const question = (text: string, sessionId?: string): ChatQuestion => ({
+const question = (text: string, conversationId?: string): ChatQuestion => ({
   question: text,
-  sessionId,
+  conversationId,
   scope: 'archive',
   documentIds: [],
 })
 
-const ask = (text: string, sessionId?: string, asker: Asker = VISITOR) =>
-  askArchive(question(text, sessionId), asker, undefined, world())
+const ask = (text: string, conversationId?: string, asker: Asker = VISITOR) =>
+  askArchive(question(text, conversationId), asker, undefined, world())
 
-/** Asks and gives the session back, for the questions that follow. */
-async function asked(text: string, sessionId?: string): Promise<string> {
-  const answer = await ask(text, sessionId)
+/** Asks and gives the conversation back, for the questions that follow. */
+async function asked(text: string, conversationId?: string): Promise<string> {
+  const answer = await ask(text, conversationId)
   if (!answer.ok) throw new Error(`"${text}" got no answer: ${answer.problem}`)
-  return answer.sessionId
+  return answer.conversationId
 }
 
 const last = () => {
@@ -162,7 +165,7 @@ describe('a question to the chat', () => {
       text: 'Podle dokumentu „Rozpočet 2025“: Na opravu chodníků jde 870 000 Kč. [1]',
       sources: [{ documentId: 'rozpocet-2025', page: 3 }],
       traceId: last().question.id,
-      sessionId: last().question.sessionId,
+      conversationId: last().question.conversationId,
     })
     // The small model writes the first search, the code runs it, the chat model answers.
     expect(searched).toEqual(['Kolik stojí oprava chodníků?'])
@@ -197,7 +200,7 @@ describe('a question to the chat', () => {
     // One search is three calls: the embedding of the query, the weighing and the reranking.
     expect(operations()).toEqual(['rewrite', 'embed', 'weigh', 'rerank', 'chat'])
     // Each call names the place it was made at; a call told no skills names none.
-    expect(calls.map((call) => call.skillKey)).toEqual([
+    expect(calls.map((call) => call.use)).toEqual([
       'chat-rewrite',
       null,
       null,
@@ -242,7 +245,7 @@ describe('a question to the chat', () => {
     ])
   })
 
-  it('starts a new session for a question without one, and for a session nobody knows', async () => {
+  it('starts a new conversation for a question without one, and for a conversation nobody knows', async () => {
     const first = await asked('Kolik stojí oprava chodníků?')
     const unknown = await asked('A kdy se opraví?', '11111111-2222-4333-8444-555555555555')
     expect(unknown).not.toBe('11111111-2222-4333-8444-555555555555')
@@ -250,9 +253,9 @@ describe('a question to the chat', () => {
   })
 
   it('answers a follow-up with the conversation so far, and numbers its passages on', async () => {
-    const sessionId = await asked('Kolik stojí oprava chodníků?')
-    const answer = await ask('A kdy se opraví?', sessionId)
-    expect(answer).toMatchObject({ ok: true, sessionId })
+    const conversationId = await asked('Kolik stojí oprava chodníků?')
+    const answer = await ask('A kdy se opraví?', conversationId)
+    expect(answer).toMatchObject({ ok: true, conversationId })
     const { question: trace } = last()
     expect(trace.history).toEqual([
       { role: 'visitor', text: 'Kolik stojí oprava chodníků?' },
@@ -262,7 +265,7 @@ describe('a question to the chat', () => {
       },
     ])
     expect(trace.setup.historyPassages).toBe(1)
-    // The same piece found again gets the next number, so no two passages of a session share one.
+    // The same piece found again gets the next number, so no two passages of a conversation share one.
     const found = trace.steps.flatMap((step) => (step.kind === 'search' ? step.passages : []))
     expect(found.map((passage) => passage.number)).toEqual([2])
     // The visitor's sources are numbered from one in every answer.
@@ -271,11 +274,11 @@ describe('a question to the chat', () => {
 
   it('says of a search whether another may follow it', async () => {
     vi.stubEnv('CHAT_MAX_SEARCHES', '2')
-    const sessionId = await asked('Kolik stojí oprava chodníků?')
+    const conversationId = await asked('Kolik stojí oprava chodníků?')
     const progress: ChatProgress[] = []
     // Found by meaning only, so the stand-in model searches once more, and that search is its last.
     await askArchive(
-      question('A jinak?', sessionId),
+      question('A jinak?', conversationId),
       VISITOR,
       (step) => progress.push(step),
       world(),
@@ -287,12 +290,12 @@ describe('a question to the chat', () => {
 
   it('sums up a conversation that grew too long, and answers from the summary', async () => {
     // The stand-in model reports a prompt past CHAT_HISTORY_TOKENS for this question.
-    const sessionId = await asked('dlouhy rozhovor o chodnících')
-    await ask('A kdy se opraví?', sessionId)
+    const conversationId = await asked('dlouhy rozhovor o chodnících')
+    await ask('A kdy se opraví?', conversationId)
     const { question: trace } = last()
     expect(kinds()).toEqual(['summary', 'rewrite', 'search', 'model'])
     expect(operations()[0]).toBe('summary-chat')
-    expect(last().calls[0]).toMatchObject({ skillKey: 'chat-summary', input: 'Otázek: 1' })
+    expect(last().calls[0]).toMatchObject({ use: 'chat-summary', input: 'Otázek: 1' })
     // The summary stands for the questions so far; their passages can no longer be cited.
     expect(trace.history).toEqual([
       {
@@ -322,9 +325,9 @@ describe('a question to the chat', () => {
   })
 
   it('leaves a failed question out of what the next one is told', async () => {
-    const sessionId = await asked('Kolik stojí oprava chodníků?')
-    await ask('selhani modelu', sessionId)
-    await ask('A kdy se opraví?', sessionId)
+    const conversationId = await asked('Kolik stojí oprava chodníků?')
+    await ask('selhani modelu', conversationId)
+    await ask('A kdy se opraví?', conversationId)
     expect(last().question.history.map((turn) => turn.text)).toEqual([
       'Kolik stojí oprava chodníků?',
       'Podle dokumentu „Rozpočet 2025“: Na opravu chodníků jde 870 000 Kč. [1]',

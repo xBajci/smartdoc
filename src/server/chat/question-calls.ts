@@ -1,4 +1,5 @@
-import type { ChatTraceStep, ModelCall } from '../../archive/types'
+import type { ModelCall } from '../../ai/types'
+import type { ChatTraceStep } from '../../chat/types'
 import { spent } from '../ai/calls'
 import type { Instructions, SkillUse } from '../ai/skills/types'
 
@@ -32,8 +33,8 @@ function toolsAskedFor(step: Extract<ChatTraceStep, { kind: 'model' }>): string 
  * embedding of the query, the weighing of the branches and the reranking.
  */
 export function callsOfSteps(steps: readonly ChatTraceStep[], context: CallsContext): ModelCall[] {
-  const told = (place: Told) => ({ skillKey: place.use, skills: place.skills, page: null })
-  const untold = { skillKey: null, skills: null, page: null }
+  const told = (place: Told) => ({ use: place.use, skills: place.skills, page: null })
+  const untold = { use: null, skills: null, page: null }
   return steps.flatMap((step): ModelCall[] => {
     if (step.kind === 'summary') {
       return [

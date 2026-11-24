@@ -129,7 +129,7 @@ export const cs = {
     scopeRemoveAll: 'Odebrat vše',
     scopeChosen: 'Vybrané dokumenty',
     scopeRemove: 'Odebrat z výběru',
-    conversation: 'Konverzace',
+    conversation: 'Rozhovor',
     examplesTitle: 'Můžete začít třeba takto',
     examples: [
       'Kolik se bude platit za svoz odpadu v následujícím roce?',
@@ -178,7 +178,7 @@ export const cs = {
     uploading: 'Nahrává se',
     queued: 'Čeká na zpracování',
     processing: 'Zpracovává se',
-    ready: 'Připraveno',
+    ready: 'Zveřejněno',
     failed: 'Chyba',
     noText: 'Bez čitelného textu',
   },
@@ -376,13 +376,13 @@ export const cs = {
     columnWhen: 'Kdy',
     formatPdf: 'PDF',
     formatImage: 'Obrázek',
-    formatNone: 'Optimalizace',
+    formatNone: 'Bez souboru',
     unknownPrice: 'cena neznámá',
     unpricedNote:
       'U některých volání není známá cena modelu, proto v součtu chybí. Cenu doplníte v proměnné AI_PRICES.',
   },
 
-  sessions: {
+  calls: {
     intro:
       'Každé zpracování dokumentu je jeden záznam. Uvnitř je každé volání modelu: co dostal, co vrátil a kolik stálo.',
     empty: 'Zatím se nezpracoval žádný dokument.',
@@ -434,13 +434,13 @@ export const cs = {
     tryRefused: 'Chat otázku nepřijal: {reason}',
     newConversation: 'Nový rozhovor',
     empty: 'Zatím se nikdo nezeptal.',
-    openSession: 'Otevřít rozhovor',
+    openConversation: 'Otevřít rozhovor',
     questions: 'Otázek: {count}',
-    sessionTitle: 'Rozhovor',
-    sessionId: 'Id rozhovoru',
+    conversationTitle: 'Rozhovor',
+    conversationId: 'Id rozhovoru',
     copyId: 'Kopírovat id',
     copied: 'Zkopírováno',
-    sessionMissing: 'Rozhovor se nepodařilo načíst.',
+    conversationMissing: 'Rozhovor se nepodařilo načíst.',
     feedbackFilter: 'Hodnocení',
     feedbackFilters: {
       all: 'Vše',

@@ -3,7 +3,7 @@ import { costOfCalls, recorded, spent, unspent, type CallHead, type ModelCall } 
 
 const HEAD: CallHead = {
   operation: 'summarize',
-  skillKey: 'describe-document',
+  use: 'describe-document',
   skills: [{ key: 'zpracovani/popis', version: 2 }],
   page: null,
   input: 'Text dokumentu.',

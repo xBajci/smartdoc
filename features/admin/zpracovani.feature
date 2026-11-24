@@ -47,7 +47,7 @@ Feature: Zpracování obsahu dokumentu
   Scenario: Zpracování lze zopakovat a ručně zadaný název zůstane
     Given dokument "Kronika obce, rok 1952" má stav "Chyba"
     When správce spustí "Zpracovat znovu"
-    Then dokument má stav "Připraveno" a stejný název
+    Then dokument má stav "Zveřejněno" a stejný název
     And knihovna dokument ukazuje s krátkým popisem
 
   Scenario: Kategorii určí AI, když ji správce nevybral

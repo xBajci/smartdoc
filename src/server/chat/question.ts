@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { ModelMessage } from 'ai'
+import type { ModelCall } from '../../ai/types'
 import type {
   ChatAnswer,
   ChatPassage,
@@ -8,8 +9,7 @@ import type {
   ChatSource,
   ChatTraceStep,
   ChatUpdate,
-  ModelCall,
-} from '../../archive/types'
+} from '../../chat/types'
 import { costOfCalls, reasonOf } from '../ai/calls'
 import { missingKey, modelName } from '../ai/models'
 import { instructionsFor, type LoadedSkill, type SkillUse } from '../ai/skills'
@@ -18,7 +18,7 @@ import { getAnswerer } from './answerer'
 import { resolveCitations } from './citations'
 import { getDecider } from './decisions'
 import { getEmbedder } from './embedder'
-import { NO_HISTORY, sessionHistory, summarized, type SessionHistory } from './history'
+import { NO_HISTORY, conversationHistory, summarized, type ConversationHistory } from './history'
 import { chatFixed, rewriteFixed } from './instructions'
 import { traceQuestion, traceSearch } from './mlflow'
 import { callsOfSteps, type Told } from './question-calls'
@@ -31,7 +31,7 @@ import { getSummarizer } from './summarizer'
 /**
  * One question to the chat, from the question to the answer and its record.
  * This is the one place that knows the order of a question: the limits, the
- * session it joins, the summary of a long conversation, the first search, the
+ * conversation it joins, the summary of a long conversation, the first search, the
  * chat model with its searches and calculations, the citations, and what is
  * kept of it all. The visitor's chat and the test questions both ask here.
  */
@@ -80,29 +80,29 @@ async function overLimit(
 }
 
 /**
- * The session a question joins and what the model is told of it. A question
- * without a session, or with one no trace knows, starts a new session under a
+ * The conversation a question joins and what the model is told of it. A question
+ * without a conversation, or with one no trace knows, starts a new conversation under a
  * fresh id: the client never gets to choose an id of its own.
  */
-async function joinSession(
-  sessionId: string | undefined,
+async function joinConversation(
+  conversationId: string | undefined,
   store: QuestionStore,
-): Promise<{ sessionId: string; history: SessionHistory }> {
-  if (sessionId === undefined) return { sessionId: randomUUID(), history: NO_HISTORY }
-  const earlier = await store.earlier(sessionId)
-  if (earlier.length === 0) return { sessionId: randomUUID(), history: NO_HISTORY }
-  return { sessionId, history: sessionHistory(earlier) }
+): Promise<{ conversationId: string; history: ConversationHistory }> {
+  if (conversationId === undefined) return { conversationId: randomUUID(), history: NO_HISTORY }
+  const earlier = await store.earlier(conversationId)
+  if (earlier.length === 0) return { conversationId: randomUUID(), history: NO_HISTORY }
+  return { conversationId, history: conversationHistory(earlier) }
 }
 
 /** One question as it is asked here, whoever asks it. */
 interface Asked {
   /** The id of the question, as `chat_traces` and MLflow know it. */
   id: string
-  sessionId: string
+  conversationId: string
   question: string
   scope: SearchScope
-  /** What the models are told of the session so far. */
-  history: SessionHistory
+  /** What the models are told of the conversation so far. */
+  history: ConversationHistory
   /** `false` leaves the decision model out: both branches weigh the same and nothing is reranked. */
   decisions: boolean
   /** More tags for the trace in MLflow. */
@@ -125,8 +125,8 @@ interface Outcome {
   costUsd: number | null
   mlflowTraceId: string | null
   /** The history the question was answered with: the one asked with, or its summary. */
-  history: SessionHistory
-  /** What the next question of the session sends again; `null` when no answer was made. */
+  history: ConversationHistory
+  /** What the next question of the conversation sends again; `null` when no answer was made. */
   messages: ModelMessage[] | null
   /** The instructions and the numbers that were in force. */
   setup: Record<string, string | number>
@@ -203,7 +203,7 @@ async function answer(asked: Asked, world: QuestionWorld): Promise<Outcome> {
   const answerer = getAnswerer()
   try {
     const answered = await traceQuestion(
-      { question, questionId: asked.id, sessionId: asked.sessionId, tags: asked.tags },
+      { question, questionId: asked.id, conversationId: asked.conversationId, tags: asked.tags },
       async () => {
         // The history only grows, so its start stays in the provider's cache. Once the prompt
         // has grown past the limit, a summary stands for the questions so far.
@@ -299,15 +299,23 @@ export async function askArchive(
 
   const id = randomUUID()
   const started = Date.now()
-  const { sessionId, history } = await joinSession(input.sessionId, world.store)
+  const { conversationId, history } = await joinConversation(input.conversationId, world.store)
   const outcome = await answer(
-    { id, sessionId, question: input.question, scope: input, history, decisions: true, report },
+    {
+      id,
+      conversationId,
+      question: input.question,
+      scope: input,
+      history,
+      decisions: true,
+      report,
+    },
     world,
   )
   await world.store.keep(
     {
       id,
-      sessionId,
+      conversationId,
       question: input.question,
       history: outcome.history.turns,
       answer: outcome.answer,
@@ -326,7 +334,7 @@ export async function askArchive(
   )
 
   if (outcome.error !== null || outcome.answer === '') return { ok: false, problem: 'failed' }
-  return { ok: true, text: outcome.answer, sources: outcome.sources, traceId: id, sessionId }
+  return { ok: true, text: outcome.answer, sources: outcome.sources, traceId: id, conversationId }
 }
 
 /**
@@ -383,7 +391,7 @@ export type TrialAnswer = Pick<
 
 /**
  * Answers one question over the whole archive the way the chat does, with its
- * settings, its skills and its searches, as the first question of a session.
+ * settings, its skills and its searches, as the first question of a conversation.
  * It has no limit and writes nothing to the database, so the test questions
  * use it (`pnpm eval:run`, `pnpm search:eval --model`).
  */
@@ -402,7 +410,7 @@ export async function answerQuestion(
   } = await answer(
     {
       id: randomUUID(),
-      sessionId: randomUUID(),
+      conversationId: randomUUID(),
       question,
       scope: { scope: 'archive', documentIds: [] },
       history: NO_HISTORY,

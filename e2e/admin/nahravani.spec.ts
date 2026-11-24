@@ -50,9 +50,9 @@ test.describe('Nahrávání dokumentů', () => {
     await uploadWindow(page).getByRole('button', { name: 'Uložit 2 soubory' }).click()
     await expect(uploadWindow(page)).toHaveCount(0)
 
-    await expect(adminRow(page, 'najem-salu-2023.pdf')).toContainText('Připraveno')
+    await expect(adminRow(page, 'najem-salu-2023.pdf')).toContainText('Zveřejněno')
     await expect(adminRow(page, 'najem-salu-2023.pdf')).toContainText('Smlouvy')
-    await expect(adminRow(page, 'kostel-z-veze.jpg')).toContainText('Připraveno')
+    await expect(adminRow(page, 'kostel-z-veze.jpg')).toContainText('Zveřejněno')
 
     // Stored for good: the documents are still there after the page is loaded again.
     await page.reload()
@@ -91,7 +91,7 @@ test.describe('Nahrávání dokumentů', () => {
 
     release()
     await expect(window).toHaveCount(0)
-    await expect(adminRow(page, 'pomaly.pdf')).toContainText('Připraveno')
+    await expect(adminRow(page, 'pomaly.pdf')).toContainText('Zveřejněno')
   })
 
   test('Dokument čeká a zpracovává se až v přehledu', async ({ page }) => {
@@ -104,7 +104,7 @@ test.describe('Nahrávání dokumentů', () => {
 
     const row = adminRow(page, 'cte-se-pomalu.pdf')
     await expect(row).toContainText('Zpracovává se')
-    await expect(row).toContainText('Připraveno')
+    await expect(row).toContainText('Zveřejněno')
   })
 
   test('Nahraný soubor lze otevřít a stáhnout beze změny', async ({ page }) => {
@@ -177,7 +177,7 @@ test.describe('Nahrávání dokumentů', () => {
 
     await window.getByRole('button', { name: 'Zavřít' }).click()
     await expect(window).toHaveCount(0)
-    await expect(adminRow(page, 'stezka-kopie.pdf')).toContainText('Připraveno')
+    await expect(adminRow(page, 'stezka-kopie.pdf')).toContainText('Zveřejněno')
     await expect(adminRow(page, 'poznamky.pdf')).toHaveCount(0)
   })
 

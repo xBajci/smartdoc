@@ -2,6 +2,7 @@ import { desc, eq } from 'drizzle-orm'
 import { cs } from '../copy/cs'
 import { getDatabase } from '../db/client'
 import { categories, documents } from '../db/schema'
+import { published } from './published'
 
 /** Documents the feed lists: the most recently added ones. */
 export const FEED_ITEMS = 50
@@ -33,8 +34,7 @@ export async function buildFeed(origin: string): Promise<string> {
     })
     .from(documents)
     .innerJoin(categories, eq(categories.id, documents.categoryId))
-    // Only a document that is ready is public.
-    .where(eq(documents.status, 'ready'))
+    .where(published())
     .orderBy(desc(documents.addedAt), desc(documents.id))
     .limit(FEED_ITEMS)
 

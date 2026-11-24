@@ -97,17 +97,17 @@ export async function addLongNamedDocument() {
   )
 }
 
-/** The ids of every chat session that has a question, in no particular order. */
-export async function chatSessionIds(): Promise<string[]> {
+/** The ids of every chat conversation that has a question, in no particular order. */
+export async function chatConversationIds(): Promise<string[]> {
   return withDatabase(async (database) => {
     const rows = await database
-      .selectDistinct({ sessionId: schema.chatTraces.sessionId })
+      .selectDistinct({ conversationId: schema.chatTraces.conversationId })
       .from(schema.chatTraces)
-    return rows.map((row) => row.sessionId)
+    return rows.map((row) => row.conversationId)
   })
 }
 
-/** Removes every chat question, so every session id a browser still holds is unknown. */
+/** Removes every chat question, so every conversation id a browser still holds is unknown. */
 export async function forgetChatTraces() {
   await withDatabase((database) => database.delete(schema.chatTraces))
 }
@@ -140,7 +140,7 @@ export async function useUpChatAllowance(questions: number) {
     database.insert(schema.chatTraces).values(
       Array.from({ length: questions }, (_, index) => ({
         id: `spent-${index}`,
-        sessionId: `spent-${index}`,
+        conversationId: `spent-${index}`,
         question: 'Otázka jiného návštěvníka',
         scope: 'archive' as const,
         model: 'fake:chat',

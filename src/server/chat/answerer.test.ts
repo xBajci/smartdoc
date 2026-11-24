@@ -1,6 +1,6 @@
 import { MockLanguageModelV4 } from 'ai/test'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ChatTraceStep } from '../../archive/types'
+import type { ChatTraceStep } from '../../chat/types'
 import { getAnswerer } from './answerer'
 import {
   CALCULATION_TOOL,

@@ -41,9 +41,29 @@ export class NotSignedInError extends Error {
   }
 }
 
-/** First line of every administrator operation on the server. */
 export function requireAdmin() {
   if (!isAdmin()) throw new NotSignedInError()
+}
+
+/**
+ * Makes the work of a server function the administrator's: a visitor's call
+ * is refused before the work starts. Every server function that is not open
+ * to visitors is wrapped in this or in `adminOrNull`; a test checks that none
+ * is left out (`functions.test.ts`).
+ */
+export function forAdmin<Input, Result>(work: (input: Input) => Result) {
+  return (input: Input): Result => {
+    requireAdmin()
+    return work(input)
+  }
+}
+
+/**
+ * The same for what a page of the administration loads first: a visitor gets
+ * `null`, so the page can show the sign-in form instead of an error.
+ */
+export function adminOrNull<Input, Result>(work: (input: Input) => Promise<Result>) {
+  return async (input: Input): Promise<Result | null> => (isAdmin() ? work(input) : null)
 }
 
 /** Stands for the caller's address without keeping the address itself. */

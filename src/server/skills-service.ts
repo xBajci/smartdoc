@@ -1,7 +1,7 @@
 import { and, eq, max } from 'drizzle-orm'
-import type { SkillInput, SkillsReport, SkillView } from '../archive/types'
+import type { SkillInput, SkillsReport, SkillView } from '../ai/types'
 import { getDatabase } from '../db/client'
-import { customSkills, skillVersions } from '../db/schema'
+import { skillSettings, skillVersions } from '../db/schema'
 import { defaultSkills, isSkillUse, SKILL_USES, SKILLS, type LoadedSkill } from './ai/skills'
 
 /** The longest text of one skill. */
@@ -22,7 +22,7 @@ export async function loadSkills(includeDisabled = false): Promise<LoadedSkill[]
   const database = getDatabase()
   const [active, custom] = await Promise.all([
     database.select().from(skillVersions).where(eq(skillVersions.status, 'active')),
-    database.select().from(customSkills).orderBy(customSkills.createdAt),
+    database.select().from(skillSettings).orderBy(skillSettings.createdAt),
   ])
   const texts = new Map<string, { content: string; version: number }>()
   for (const row of active) {
@@ -59,7 +59,7 @@ export async function loadSkills(includeDisabled = false): Promise<LoadedSkill[]
 export async function skillsReport(): Promise<SkillsReport> {
   const [loaded, custom] = await Promise.all([
     loadSkills(true),
-    getDatabase().select().from(customSkills),
+    getDatabase().select().from(skillSettings),
   ])
   return {
     skills: loaded.map((skill): SkillView => ({
@@ -172,13 +172,13 @@ export async function createSkill(input: SkillInput): Promise<string | null> {
   if (head === null || content === '' || content.length > MAX_SKILL_CHARACTERS) return null
   const database = getDatabase()
   const taken = new Set(
-    (await database.select({ id: customSkills.id }).from(customSkills)).map((row) => row.id),
+    (await database.select({ id: skillSettings.id }).from(skillSettings)).map((row) => row.id),
   )
   const stem = `vlastni/${slugify(head.title) || 'skill'}`
   let id = stem
   for (let suffix = 2; taken.has(id); suffix += 1) id = `${stem}-${suffix}`
   await database.transaction(async (transaction) => {
-    await transaction.insert(customSkills).values({ id, group: input.group, ...head })
+    await transaction.insert(skillSettings).values({ id, group: input.group, ...head })
     await activate(transaction, id, content, 'Přidal správce.')
   })
   return id
@@ -199,19 +199,19 @@ export async function updateSkill(
     const head = checked({ title: starting.title, group: starting.group, uses: changes.uses })
     if (head === null) return false
     await database
-      .insert(customSkills)
+      .insert(skillSettings)
       .values({ id: skillKey, group: starting.group, ...head })
-      .onConflictDoUpdate({ target: customSkills.id, set: { uses: head.uses } })
+      .onConflictDoUpdate({ target: skillSettings.id, set: { uses: head.uses } })
     return true
   }
-  const [row] = await database.select().from(customSkills).where(eq(customSkills.id, skillKey))
+  const [row] = await database.select().from(skillSettings).where(eq(skillSettings.id, skillKey))
   if (row === undefined) return false
   const head = checked({ ...changes, group: row.group })
   if (head === null) return false
   await database
-    .update(customSkills)
+    .update(skillSettings)
     .set({ ...head, enabled: changes.enabled })
-    .where(eq(customSkills.id, skillKey))
+    .where(eq(skillSettings.id, skillKey))
   return true
 }
 
@@ -220,8 +220,8 @@ export async function deleteSkill(skillKey: string) {
   if (SKILLS.some((skill) => skill.key === skillKey)) return
   await getDatabase().transaction(async (transaction) => {
     const removed = await transaction
-      .delete(customSkills)
-      .where(eq(customSkills.id, skillKey))
+      .delete(skillSettings)
+      .where(eq(skillSettings.id, skillKey))
       .returning()
     if (removed.length === 0) return
     await transaction
@@ -239,6 +239,6 @@ export async function resetSkill(skillKey: string) {
       .update(skillVersions)
       .set({ status: 'retired', decidedAt: new Date() })
       .where(and(eq(skillVersions.skillKey, skillKey), eq(skillVersions.status, 'active')))
-    await transaction.delete(customSkills).where(eq(customSkills.id, skillKey))
+    await transaction.delete(skillSettings).where(eq(skillSettings.id, skillKey))
   })
 }

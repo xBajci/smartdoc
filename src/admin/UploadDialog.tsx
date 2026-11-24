@@ -2,7 +2,7 @@ import { Link } from '@tanstack/react-router'
 import { useRef, useState, type DragEvent } from 'react'
 import { formatSize, plural } from '~/archive/format'
 import { archive, useArchive } from '~/archive/store'
-import type { ArchiveDocument } from '~/archive/types'
+import { isPublished, type ArchiveDocument } from '~/archive/types'
 import {
   ACCEPTED_EXTENSIONS,
   inspectFile,
@@ -300,7 +300,7 @@ export function UploadDialog({ onClose }: Readonly<UploadDialogProps>) {
                       <p className="field-error" role="alert">
                         <Icon name="alert" size={15} />
                         {problem}{' '}
-                        {duplicate?.status === 'ready' ? (
+                        {duplicate !== null && isPublished(duplicate) ? (
                           <Link to="/" search={{ doc: duplicate.id }}>
                             {cs.upload.openExisting}
                           </Link>

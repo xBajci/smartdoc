@@ -74,7 +74,7 @@ function prepare(
   const instructions = instructionsFor(skills, use, [...fixed, GUARD])
   const head: CallHead = {
     operation,
-    skillKey: use,
+    use,
     skills: instructions.skills,
     page,
     // The record shows all the model read: its instructions, then the data of this call.

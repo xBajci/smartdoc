@@ -5,9 +5,7 @@ import {
   createDocumentFn,
   getArchiveFn,
   getDocumentsFn,
-  getExtractedTextFn,
   prepareUploadFn,
-  processDocumentFn,
   removeCategoryFn,
   removeDocumentFn,
   reorderCategoriesFn,
@@ -16,7 +14,8 @@ import {
   signOutFn,
   updateCategoryFn,
   updateDocumentFn,
-} from '~/server/archive'
+} from '~/server/archive-functions'
+import { getExtractedTextFn, processDocumentFn } from '~/server/processing-functions'
 import type {
   ArchiveDocument,
   ArchiveSnapshot,

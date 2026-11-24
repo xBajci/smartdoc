@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { formatUsd } from '~/archive/format'
-import type { DocumentDebug, ProcessingRun } from '~/archive/types'
 import { Icon } from '~/components/Icon'
 import { cs, fill } from '~/copy/cs'
-import { getDocumentDebugFn } from '~/server/archive'
+import type { DocumentDebug, ProcessingRun } from '~/processing/types'
+import { getDocumentDebugFn } from '~/server/processing-functions'
 import { CallRecord } from './CallRecord'
 
 const dateTime = new Intl.DateTimeFormat('cs-CZ', { dateStyle: 'medium', timeStyle: 'medium' })
@@ -134,7 +134,7 @@ function Run({ run, open }: Readonly<{ run: ProcessingRun; open: boolean }>) {
       value:
         run.durationMs === null
           ? '–'
-          : fill(cs.sessions.duration, { seconds: seconds.format(run.durationMs / 1000) }),
+          : fill(cs.calls.duration, { seconds: seconds.format(run.durationMs / 1000) }),
     },
     { label: cs.debug.summaryCalls, value: count.format(run.calls.length) },
     {
