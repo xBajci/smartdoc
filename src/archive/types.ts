@@ -183,38 +183,56 @@ export interface UsageReport {
   })[]
 }
 
-/** One call to a model inside a session: what was asked and what came back. */
-export interface SessionCall {
-  id: number
-  operation:
-    | 'read-page'
-    | 'read-mixed-page'
-    | 'describe-image'
-    | 'summarize'
-    | 'categorize'
-    | 'optimize'
-    | 'embed'
-    | 'chat'
-    | 'weigh'
-    | 'rerank'
-    | 'glossary'
-    | 'rewrite'
-    | 'summary-chat'
+/** What a model can be called for; `optimize` is only in older records. */
+export const CALL_OPERATIONS = [
+  'read-page',
+  'read-mixed-page',
+  'describe-image',
+  'summarize',
+  'categorize',
+  'optimize',
+  'embed',
+  'chat',
+  'weigh',
+  'rerank',
+  'glossary',
+  'rewrite',
+  'summary-chat',
+] as const
+export type CallOperation = (typeof CALL_OPERATIONS)[number]
+
+/**
+ * One call to a model: what was asked, what came back, what it used and what
+ * it cost. Processing, the chat and the commands all record a call this way
+ * (see `src/server/ai/calls.ts`).
+ */
+export interface ModelCall {
+  operation: CallOperation
+  /** As written in `.env`: provider:model. */
   model: string
-  /** The place the call was made at; in older records the key of one skill. */
+  /** The place the call was made at; `null` for a call that is told no skills. In older records the key of one skill. */
   skillKey: string | null
-  /** 0 is the starting wording of the skill. */
-  skillVersion: number
-  /** Every skill the call was told, with the version of its text; `null` in older records. */
+  /** Every skill the call was told, with the version of its text; `null` for a call told none, and in older records. */
   skills: { key: string; version: number }[] | null
+  /** Page of a PDF the call read. */
   page: number | null
+  /** The text sent to the model. A page or an image itself is only named. */
   input: string
   output: string
+  /** Why the call failed; `null` when it went well. */
   error: string | null
   durationMs: number
   inputTokens: number
   outputTokens: number
+  /** In US dollars; `null` when the price of the model is not known. */
   costUsd: number | null
+}
+
+/** A call as the records give it back, inside the session of its run. */
+export interface SessionCall extends ModelCall {
+  id: number
+  /** Only in older records, which name one skill: 0 is its starting wording. */
+  skillVersion: number
 }
 
 /**

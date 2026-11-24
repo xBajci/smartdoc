@@ -22,12 +22,12 @@ import type {
 } from '~/archive/types'
 import * as service from './archive-service'
 import {
-  askArchiveLive,
   findChatSession,
   findChatTrace,
   listChatSessions,
   rateChatAnswer,
 } from './chat/chat-service'
+import { askArchiveLive } from './chat/question'
 import { MAX_QUESTION_CHARACTERS } from './chat/settings'
 import { storageMode } from './config'
 import { documentDebug } from './debug-service'

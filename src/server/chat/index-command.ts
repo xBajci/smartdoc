@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { eq, notExists, and } from 'drizzle-orm'
 import { closeDatabase, getDatabase } from '../../db/client'
-import { aiUsage, documentChunks, documents } from '../../db/schema'
-import { costOfCall } from '../ai/prices'
+import { documentChunks, documents } from '../../db/schema'
+import { storeCalls } from '../ai/calls'
 import { hasTextLayer, readTextLayers } from '../pdf-text'
 import { getStorage } from '../storage'
 import type { PageText } from './chunks'
@@ -51,23 +51,13 @@ async function pagesOf(row: (typeof waiting)[number]): Promise<PageText[]> {
 
 let pieces = 0
 for (const row of waiting) {
-  const started = Date.now()
   const chunks = await prepareChunks(row, await pagesOf(row), embed)
   await database.transaction((transaction) => writeChunks(transaction, row.id, chunks.rows))
-  if (chunks.model !== null) {
-    await database.insert(aiUsage).values({
-      runId: randomUUID(),
-      documentId: row.id,
-      documentTitle: row.title,
-      format: row.format,
-      operation: 'embed',
-      model: chunks.model,
-      input: `Kousků textu: ${chunks.rows.length}`,
-      durationMs: Date.now() - started,
-      inputTokens: chunks.tokens,
-      outputTokens: 0,
-      costUsd: costOfCall(chunks.model, chunks.tokens, 0),
-    })
+  if (chunks.call !== null) {
+    await storeCalls(
+      { runId: randomUUID(), documentId: row.id, title: row.title, format: row.format },
+      [chunks.call],
+    )
   }
   pieces += chunks.rows.length
   console.log(`${row.title}: ${chunks.rows.length}`)

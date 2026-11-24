@@ -3,9 +3,9 @@ import { writeFile } from 'node:fs/promises'
 import { generateText } from 'ai'
 import { eq } from 'drizzle-orm'
 import { closeDatabase, getDatabase } from '../../db/client'
-import { aiUsage, categories, documents } from '../../db/schema'
+import { categories, documents } from '../../db/schema'
+import { costOfCalls, recorded, storeCalls, type ModelCall } from '../ai/calls'
 import { languageModel, missingKey, modelName } from '../ai/models'
-import { costOfCall } from '../ai/prices'
 import {
   GLOSSARY_FILE,
   GLOSSARY_INSTRUCTIONS,
@@ -46,32 +46,37 @@ const input = glossaryInput(
   })),
 )
 const model = modelName('glossary')
-const started = Date.now()
 console.log(`Píšu glosář z ${rows.length} dokumentů modelem ${model}…`)
-const { text, usage } = await generateText({
-  model: languageModel('glossary'),
-  instructions: GLOSSARY_INSTRUCTIONS,
-  messages: [{ role: 'user', content: input }],
-})
+const calls: ModelCall[] = []
+// A call that fails stops the command here, and nothing is written.
+const text = await recorded(
+  (call) => calls.push(call),
+  model,
+  {
+    operation: 'glossary',
+    skillKey: null,
+    skills: null,
+    page: null,
+    input: `Dokumentů: ${rows.length}`,
+  },
+  async () => {
+    const written = await generateText({
+      model: languageModel('glossary'),
+      instructions: GLOSSARY_INSTRUCTIONS,
+      messages: [{ role: 'user', content: input }],
+    })
+    return { value: written.text, output: written.text, usage: written.usage }
+  },
+)
 await writeFile(GLOSSARY_FILE, glossarySkillFile(text))
 
-const inputTokens = usage.inputTokens ?? 0
-const outputTokens = usage.outputTokens ?? 0
-const costUsd = costOfCall(model, inputTokens, outputTokens)
-await database.insert(aiUsage).values({
-  runId: randomUUID(),
-  documentTitle: 'Glosář chatu',
-  operation: 'glossary',
-  model,
-  input: `Dokumentů: ${rows.length}`,
-  output: text,
-  durationMs: Date.now() - started,
-  inputTokens,
-  outputTokens,
-  costUsd,
-})
+await storeCalls(
+  { runId: randomUUID(), documentId: null, title: 'Glosář chatu', format: null },
+  calls,
+)
 await closeDatabase()
 
+const costUsd = costOfCalls(calls)
 console.log(
   `Glosář je v ${GLOSSARY_FILE}. Cena: ${costUsd === null ? 'neznámá' : `$${costUsd.toFixed(3)}`}.`,
 )

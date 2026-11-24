@@ -15,7 +15,12 @@ import {
   timestamp,
   vector,
 } from 'drizzle-orm/pg-core'
-import type { ChatTraceStep, ChatTurn, ProcessingStep } from '../archive/types'
+import {
+  CALL_OPERATIONS,
+  type ChatTraceStep,
+  type ChatTurn,
+  type ProcessingStep,
+} from '../archive/types'
 
 /** Postgres' own type for a text prepared for full-text search. */
 const tsvector = customType<{ data: string }>({ dataType: () => 'tsvector' })
@@ -124,23 +129,7 @@ export const aiUsage = pgTable(
     documentTitle: text('document_title').notNull(),
     /** `null` for a call that did not read a document, i.e. the optimizer. */
     format: text('format', { enum: ['pdf', 'image'] }),
-    operation: text('operation', {
-      enum: [
-        'read-page',
-        'read-mixed-page',
-        'describe-image',
-        'summarize',
-        'categorize',
-        'optimize',
-        'embed',
-        'chat',
-        'weigh',
-        'rerank',
-        'glossary',
-        'rewrite',
-        'summary-chat',
-      ],
-    }).notNull(),
+    operation: text('operation', { enum: CALL_OPERATIONS }).notNull(),
     /** The place the call was made at (see `SkillUse`); older rows hold the key of one skill here. */
     skillKey: text('skill_key'),
     skillVersion: integer('skill_version').notNull().default(0),

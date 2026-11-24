@@ -1,8 +1,8 @@
 import { generateText, Output } from 'ai'
 import { z } from 'zod'
 import type { ChatTraceStep, ChatTurn } from '../../archive/types'
+import { FAKE_USAGE, reasonOf, spent, unspent } from '../ai/calls'
 import { languageModel, modelName, modelSetting } from '../ai/models'
-import { costOfCall } from '../ai/prices'
 import { turnsAsMessages } from './history'
 import { chatTelemetry } from './mlflow'
 
@@ -62,39 +62,25 @@ const aiRewriter: Rewriter = async ({ question, history, instructions }) => {
         }),
       }),
     })
-    const inputTokens = usage.inputTokens ?? 0
-    const outputTokens = usage.outputTokens ?? 0
-    const cached = {
-      read: usage.inputTokenDetails.cacheReadTokens ?? 0,
-      written: usage.inputTokenDetails.cacheWriteTokens ?? 0,
-    }
     return {
       kind: 'rewrite',
       model,
       queries: firstQueries(output.dotazy, question, history),
       error: null,
       durationMs: Date.now() - started,
-      inputTokens,
-      cachedInputTokens: cached.read,
-      outputTokens,
-      costUsd: costOfCall(model, inputTokens, outputTokens, cached),
+      ...spent(model, usage),
     }
   } catch (caught) {
     return {
       kind: 'rewrite',
       model,
       queries: [question],
-      error: caught instanceof Error ? caught.message : String(caught),
+      error: reasonOf(caught),
       durationMs: Date.now() - started,
-      inputTokens: 0,
-      outputTokens: 0,
-      costUsd: null,
+      ...unspent(model),
     }
   }
 }
-
-/** Tokens the fake model reports, so costs in tests are fixed. */
-const FAKE_USAGE = { inputTokens: 1000, outputTokens: 100 }
 
 /** A stand-in for the test suite (`AI_REWRITE_MODEL=fake:rewrite`): it searches with the question as it is. */
 const fakeRewriter: Rewriter = ({ question, history }) => {
@@ -105,8 +91,7 @@ const fakeRewriter: Rewriter = ({ question, history }) => {
     queries: firstQueries([question], question, history),
     error: null,
     durationMs: 1,
-    ...FAKE_USAGE,
-    costUsd: costOfCall(model, FAKE_USAGE.inputTokens, FAKE_USAGE.outputTokens),
+    ...spent(model, FAKE_USAGE),
   })
 }
 

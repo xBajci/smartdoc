@@ -84,7 +84,9 @@ Klíč je v `OPENAI_API_KEY` nebo `ANTHROPIC_API_KEY`. Testy používají dodava
 
 - **Záznamy volání**: každé volání modelu se zapíše do tabulky `ai_usage`: model, skilly a jejich
   verze, co model dostal, co vrátil, chyba, doba, tokeny a cena. Zpracování dokumentu ukazuje panel
-  ladění na stránce „Zpracování“, otázky chatu stránka „Ladění chatu“.
+  ladění na stránce „Zpracování“, otázky chatu stránka „Ladění chatu“. Záznam volání má jedno místo,
+  `src/server/ai/calls.ts`: tam se počítá cena (i vstup z cache), tam vzniká záznam volání, které selhalo
+  (žádné tokeny; cena 0, když je cena modelu známá), a jen odtud se zapisuje do `ai_usage`. Kdo volá model, cenu sám nepočítá.
 - **Skilly** (`/sprava/skilly`): skill je text v Markdownu, podle kterého model pracuje. Jsou ve dvou
   skupinách: zpracování dokumentů a obrázků, a chat. Každá skupina má jeden systémový prompt.
   Každý skill říká, na kterých místech se použije (`SKILL_USES` v `src/server/ai/skills/types.ts`).
@@ -151,6 +153,12 @@ Podrobnosti jsou v návrhu chatu.
   nástrojů by zahodilo cache. Nástroj s vyčerpaným limitem modelu odpoví, že už nesmí, a ladění odmítnuté hledání
   ukáže. Když nezbývá nic, nebo v posledním povoleném kroku, smyčka pošle `toolChoice: 'none'` a model musí odpovědět.
 
+- **Jedna otázka** (`src/server/chat/question.ts`). Jediné místo, které zná pořadí otázky: limity, rozhovor,
+  shrnutí, první hledání, chatovací model s nástroji, citace a záznam (stopa v `chat_traces`, volání
+  v `ai_usage`). Ptá se tam chat návštěvníka (`askArchive`) i testovací otázky (`answerQuestion`, bez limitů
+  a bez zápisu). Hledání počítá jen smyčka s modelem (`searchBudget` v `answerer.ts`); hledání poslaná v jednom
+  kroku jsou jedno. Testy v `question.test.ts` se ptají stejně jako aplikace, s náhradními modely, otázkami
+  v paměti a pevným hledáním.
 - **Kousky.** Zpracování rozdělí dokument na kousky (tabulka `document_chunks`) a ke každému
   uloží embedding. Dokumenty zpracované dřív připraví `pnpm chat:index`.
 - **Hybridní hledání.** Větev slov je BM25 (rozšíření `pg_textsearch`). Větev významu jsou
@@ -202,10 +210,10 @@ startu serveru (`shared_preload_libraries`). Místní obraz je v `docker/postgre
 | `src/viewer` | Prohlížeč PDF a obrázků. |
 | `src/admin`, `src/routes/sprava*` | Správa archivu. |
 | `src/server` | Serverové funkce, přihlášení, úložiště souborů, náhledy, zpracování obsahu. |
-| `src/server/ai` | Jediné místo, které zná dodavatele AI a modely. |
+| `src/server/ai` | Jediné místo, které zná dodavatele AI a modely. Záznam volání a jeho cena: `calls.ts`. |
 | `src/server/ai/skills` | Výchozí znění skillů, ve složce podle typu souboru (`pdf`, `image`, `shared`). |
 | `src/chat` | Panel chatu na hlavní stránce. |
-| `src/server/chat` | Chat na serveru: kousky, embeddingy, hybridní hledání, smyčka s modelem, stopy. |
+| `src/server/chat` | Chat na serveru: jedna otázka od začátku do konce (`question.ts`), kousky, embeddingy, hybridní hledání, smyčka s modelem, stopy. |
 | `src/db` | Schéma databáze, migrace, ukázková data. |
 | `src/routes/soubor*`, `src/routes/api` | Vydávání a příjem souborů. |
 | `src/copy/cs.ts` | Všechny texty rozhraní. |

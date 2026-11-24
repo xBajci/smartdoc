@@ -1,10 +1,7 @@
 import { execFileSync } from 'node:child_process'
-import { randomUUID } from 'node:crypto'
 import { closeDatabase } from '../../db/client'
 import { modelName } from '../ai/models'
-import { answerQuestion } from './chat-service'
 import { DATASET_NAME } from './eval-dataset'
-import { NO_HISTORY } from './history'
 import {
   datasetRecords,
   endRun,
@@ -14,6 +11,7 @@ import {
   mlflowPage,
   startRun,
 } from './mlflow'
+import { answerQuestion } from './question'
 import { chatSettings } from './settings'
 
 // `pnpm eval:run` — asks the chat every question of the dataset in MLflow,
@@ -49,13 +47,7 @@ await Promise.all(
   Array.from({ length: AT_ONCE }, async () => {
     for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
       const { record, question } = next
-      const answered = await answerQuestion({
-        question,
-        scope: { scope: 'archive', documentIds: [] },
-        history: NO_HISTORY,
-        settings,
-        questionId: randomUUID(),
-        sessionId: randomUUID(),
+      const answered = await answerQuestion(question, {
         tags: { dataset_record_id: record.id, question_number: record.tags.number ?? '' },
       })
       // Expectations go on a trace MLflow already has.
@@ -67,10 +59,7 @@ await Promise.all(
         question,
         number: record.tags.number ?? '',
         error: answered.error,
-        costUsd: answered.steps.reduce(
-          (sum, step) => sum + (step.kind === 'model' ? (step.costUsd ?? 0) : 0),
-          0,
-        ),
+        costUsd: answered.costUsd ?? 0,
       })
       console.log(`${answered.error === null ? 'ok' : 'CHYBA'}\t${question}`)
     }
@@ -84,5 +73,5 @@ await closeDatabase()
 const cost = results.reduce((sum, result) => sum + result.costUsd, 0)
 console.log(`\nOtázek ${results.length}, bez odpovědi ${failed.length}.`)
 for (const { number, question, error } of failed) console.log(`  ${number}\t${question}: ${error}`)
-console.log(`Cena volání chatovacího modelu: ${cost.toFixed(3)} USD`)
+console.log(`Cena všech volání modelů: ${cost.toFixed(3)} USD`)
 console.log(`Běh v MLflow: ${mlflowPage(`runs/${runId}`)}`)

@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { generateText, stepCountIs, tool, type ModelMessage } from 'ai'
 import { z } from 'zod'
 import type { ChatPassage, ChatTraceStep } from '../../archive/types'
+import { FAKE_USAGE, spent } from '../ai/calls'
 import { languageModel, modelName, modelSetting } from '../ai/models'
-import { costOfCall } from '../ai/prices'
 import {
   CALCULATION_TOOL,
   CALCULATIONS_USED_UP,
@@ -30,8 +30,11 @@ export interface AnswerInput {
    * rewrite; already in the trace. Empty when the conversation holds the answer.
    */
   found: readonly SearchStep[]
-  /** Runs one hybrid search. */
-  search: (query: string) => Promise<SearchStep>
+  /**
+   * Runs one hybrid search. `last` says that no search may follow it: the
+   * searches of the question are counted here and nowhere else.
+   */
+  search: (query: string, last: boolean) => Promise<SearchStep>
   /** Receives every model call and every search as it ends, so a failed run still leaves a trace. */
   trace: (step: ChatTraceStep) => void
 }
@@ -61,8 +64,7 @@ const aiAnswerer: Answerer = async ({
   /** Searches of the running step that came after the searches were used up. */
   let refused: string[] = []
   let stepStarted = Date.now()
-  /** Steps that searched; a step may send several searches at once. The first search counts as one. */
-  let searchSteps = found.length === 0 ? 0 : 1
+  const searches = searchBudget(settings, found)
   const calculations = calculationBudget(settings)
   // Every step but the last uses up a search, a calculation or an errored run; a call
   // refused for a used-up limit wastes a step, and the margin leaves room for a few.
@@ -95,11 +97,11 @@ const aiAnswerer: Answerer = async ({
           }),
           execute: async ({ dotaz }) => {
             // The searches of one step all count as one, so a step that may search runs them all.
-            if (searchSteps >= settings.maxSearches) {
+            if (!searches.allowed()) {
               refused.push(dotaz)
               return SEARCHES_USED_UP
             }
-            const step = await search(dotaz)
+            const step = await search(dotaz, searches.last())
             searched.push(step)
             return searchResult(step)
           },
@@ -112,7 +114,7 @@ const aiAnswerer: Answerer = async ({
       // used up says so when called, and only the tool choice changes.
       prepareStep: ({ stepNumber }) => {
         stepStarted = Date.now()
-        const canSearch = searchSteps < settings.maxSearches
+        const canSearch = searches.allowed()
         const canCalculate = calculations.allowed()
         // With nothing left to use, or in the last step, the model must answer from what it has.
         if ((!canSearch && !canCalculate) || stepNumber >= maxSteps - 1) {
@@ -122,13 +124,7 @@ const aiAnswerer: Answerer = async ({
       },
       onStepEnd: (step) => {
         const tools = [...searched, ...calculated].reduce((sum, item) => sum + item.durationMs, 0)
-        const inputTokens = step.usage.inputTokens ?? 0
-        const outputTokens = step.usage.outputTokens ?? 0
-        const cached = {
-          read: step.usage.inputTokenDetails.cacheReadTokens ?? 0,
-          written: step.usage.inputTokenDetails.cacheWriteTokens ?? 0,
-        }
-        if (searched.length > 0) searchSteps += 1
+        if (searched.length > 0) searches.stepSearched()
         trace({
           kind: 'model',
           step: step.stepNumber + 1,
@@ -138,10 +134,7 @@ const aiAnswerer: Answerer = async ({
           ...(refused.length === 0 ? {} : { refusedSearches: refused }),
           calculations: calculated.length,
           durationMs: Math.max(0, Date.now() - stepStarted - tools),
-          inputTokens,
-          cachedInputTokens: cached.read,
-          outputTokens,
-          costUsd: costOfCall(model, inputTokens, outputTokens, cached),
+          ...spent(model, step.usage),
         })
         for (const item of searched) trace(item)
         for (const item of calculated) trace(item)
@@ -199,6 +192,26 @@ function firstSearchMessages(found: readonly SearchStep[]): ModelMessage[] {
       })),
     },
   ]
+}
+
+/**
+ * Counts the searches of one question, by the steps that searched: a step may
+ * send several searches at once, and they all count as one. The first search,
+ * made before the model is called, counts as one too.
+ */
+export function searchBudget(
+  settings: Pick<ChatSettings, 'maxSearches'>,
+  found: readonly SearchStep[],
+) {
+  let steps = found.length === 0 ? 0 : 1
+  return {
+    allowed: () => steps < settings.maxSearches,
+    /** Whether the step that is searching now is the last that may; the first search of a question is never called the last. */
+    last: () => steps > 0 && steps + 1 >= settings.maxSearches,
+    stepSearched: () => {
+      steps += 1
+    },
+  }
 }
 
 /**
@@ -288,8 +301,6 @@ async function calculate(
   return { step, forModel: allowed ? scriptFailed(outcome.error) : CALCULATIONS_USED_UP }
 }
 
-/** Tokens the fake model reports for every call, so costs in tests are fixed. */
-const FAKE_USAGE = { inputTokens: 1000, outputTokens: 100 }
 /** Input tokens the fake model reports for a question with "dlouhy rozhovor", past the limit of the history. */
 const FAKE_LONG_INPUT = 90_000
 /** Input of every call after the first that the fake model reads from the cache, as a real provider would. */
@@ -325,8 +336,9 @@ const fakeAnswerer: Answerer = async ({
   const model = modelName('chat')
   const slow = asked.includes(FAKE_SLOW)
   const question = asked.replace(FAKE_SLOW, '').trim()
+  const budget = searchBudget(settings, found)
   const search = async (query: string) => {
-    const found = await find(query)
+    const found = await find(query, budget.last())
     if (slow) await new Promise((resolve) => setTimeout(resolve, FAKE_READING_MS))
     return found
   }
@@ -345,12 +357,10 @@ const fakeAnswerer: Answerer = async ({
       searches,
       calculations,
       durationMs: 1,
-      inputTokens,
-      outputTokens: FAKE_USAGE.outputTokens,
-      cachedInputTokens,
-      costUsd: costOfCall(model, inputTokens, FAKE_USAGE.outputTokens, {
-        read: cachedInputTokens,
-        written: 0,
+      ...spent(model, {
+        inputTokens,
+        outputTokens: FAKE_USAGE.outputTokens,
+        inputTokenDetails: { cacheReadTokens: cachedInputTokens },
       }),
     })
   }

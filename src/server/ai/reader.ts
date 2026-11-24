@@ -1,7 +1,8 @@
 import { generateText, Output } from 'ai'
 import sharp from 'sharp'
 import { z } from 'zod'
-import { languageModel, modelName, modelSetting, type ModelRole } from './models'
+import { FAKE_USAGE, recorded, type CallHead, type ModelCall, type RecordCall } from './calls'
+import { languageModel, modelName, modelSetting } from './models'
 import { GUARD, instructionsFor, NO_TEXT, type LoadedSkill, type SkillUse } from './skills/types'
 
 /** What processing learns about a document besides its text. */
@@ -20,37 +21,6 @@ export interface ImageReading extends Summary {
   /** A short paragraph about what the image shows. */
   description: string
 }
-
-/** One call to a model: what was asked, what came back and what it used. */
-export interface ModelCall {
-  operation:
-    | 'read-page'
-    | 'read-mixed-page'
-    | 'describe-image'
-    | 'summarize'
-    | 'categorize'
-    | 'optimize'
-    | 'embed'
-    | 'chat'
-  /** As written in `.env`: provider:model. */
-  model: string
-  /** The place the call was made at; `null` for a call that is told no skills. */
-  skillKey: string | null
-  skillVersion: number
-  /** Every skill the call was told, with the version of its text. */
-  skills?: { key: string; version: number }[]
-  /** Page of a PDF the call read. */
-  page: number | null
-  /** The text sent to the model. A page or an image itself is only named. */
-  input: string
-  output: string
-  /** Why the call failed; `null` when it went well. */
-  error: string | null
-  durationMs: number
-  inputTokens: number
-  outputTokens: number
-}
-export type RecordCall = (call: ModelCall) => void
 
 /**
  * Everything processing asks of AI. The rest of the application knows this
@@ -74,55 +44,6 @@ const IMAGE_SIDE = 1568
 const SUMMARY_CHARACTERS = 24_000
 /** How much of a page's text layer goes to the model with the page. */
 const LAYER_CHARACTERS = 12_000
-/** How much of a sent text is kept in the record of a call. */
-const RECORDED_INPUT_CHARACTERS = 16_000
-
-type CallHead = Pick<
-  ModelCall,
-  'operation' | 'skillKey' | 'skillVersion' | 'skills' | 'page' | 'input'
->
-interface CallResult<T> {
-  value: T
-  output: string
-  usage: { inputTokens: number | undefined; outputTokens: number | undefined }
-}
-
-/** Runs one call and records it whether it ends well or not, then passes the outcome on. */
-export async function recorded<T>(
-  record: RecordCall,
-  role: ModelRole,
-  head: CallHead,
-  work: () => Promise<CallResult<T>>,
-): Promise<T> {
-  const started = Date.now()
-  const call = {
-    ...head,
-    input: head.input.slice(0, RECORDED_INPUT_CHARACTERS),
-    model: modelName(role),
-  }
-  try {
-    const { value, output, usage } = await work()
-    record({
-      ...call,
-      output,
-      error: null,
-      durationMs: Date.now() - started,
-      inputTokens: usage.inputTokens ?? 0,
-      outputTokens: usage.outputTokens ?? 0,
-    })
-    return value
-  } catch (error) {
-    record({
-      ...call,
-      output: '',
-      error: error instanceof Error ? error.message : String(error),
-      durationMs: Date.now() - started,
-      inputTokens: 0,
-      outputTokens: 0,
-    })
-    throw error
-  }
-}
 
 /** The fields every description has. What to write into them is in the skills. */
 const summaryShape = {
@@ -154,7 +75,6 @@ function prepare(
   const head: CallHead = {
     operation,
     skillKey: use,
-    skillVersion: 0,
     skills: instructions.skills,
     page,
     // The record shows all the model read: its instructions, then the data of this call.
@@ -175,7 +95,7 @@ function aiReader(skills: readonly LoadedSkill[], record: RecordCall): DocumentR
         pageNumber,
         [EMPTY_PAGE],
       )
-      return recorded(record, 'ocr', head, async () => {
+      return recorded(record, modelName('ocr'), head, async () => {
         const { text, usage } = await generateText({
           model: languageModel('ocr'),
           instructions,
@@ -203,7 +123,7 @@ function aiReader(skills: readonly LoadedSkill[], record: RecordCall): DocumentR
         pageNumber,
         [EMPTY_PAGE],
       )
-      return recorded(record, 'ocr', head, async () => {
+      return recorded(record, modelName('ocr'), head, async () => {
         const { text, usage } = await generateText({
           model: languageModel('ocr'),
           instructions,
@@ -228,7 +148,7 @@ function aiReader(skills: readonly LoadedSkill[], record: RecordCall): DocumentR
         description: z.string().describe('Delší popis obrázku podle skillu o názvu a popisu.'),
         ...summaryShape,
       })
-      return recorded(record, 'ocr', head, async () => {
+      return recorded(record, modelName('ocr'), head, async () => {
         const smaller = await sharp(image)
           .rotate()
           .resize(IMAGE_SIDE, IMAGE_SIDE, { fit: 'inside', withoutEnlargement: true })
@@ -256,7 +176,7 @@ function aiReader(skills: readonly LoadedSkill[], record: RecordCall): DocumentR
       // A long text is cut to its start, and the model is told so.
       const request = `Původní název souboru: ${filename}\n\nText dokumentu (dlouhý text je zkrácený, je tu jeho začátek):\n<dokument>\n${text.slice(0, SUMMARY_CHARACTERS)}\n</dokument>`
       const { instructions, head } = prepare(skills, 'summarize', 'describe-document', request)
-      return recorded(record, 'description', head, async () => {
+      return recorded(record, modelName('description'), head, async () => {
         const { output, usage } = await generateText({
           model: languageModel('description'),
           output: Output.object({ schema: z.object(summaryShape) }),
@@ -274,10 +194,9 @@ function aiReader(skills: readonly LoadedSkill[], record: RecordCall): DocumentR
  * nothing and repeat exactly. A file named "*selhani*" makes it fail on purpose.
  */
 function fakeReader(skills: readonly LoadedSkill[], record: RecordCall): DocumentReader {
-  const usage = { inputTokens: 1000, outputTokens: 100 }
   const answer = <T>(value: T) => {
     const output = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
-    return Promise.resolve({ value, output, usage })
+    return Promise.resolve({ value, output, usage: FAKE_USAGE })
   }
   const failOn = (filename: string) => {
     if (filename.includes('selhani')) throw new Error('The fake reader was asked to fail.')
@@ -290,7 +209,7 @@ function fakeReader(skills: readonly LoadedSkill[], record: RecordCall): Documen
     readPage: (_pagePdf, pageNumber) =>
       recorded(
         record,
-        'ocr',
+        modelName('ocr'),
         prepare(skills, 'read-page', 'read-scanned-page', `Strana ${pageNumber}.`, pageNumber, [
           EMPTY_PAGE,
         ]).head,
@@ -299,7 +218,7 @@ function fakeReader(skills: readonly LoadedSkill[], record: RecordCall): Documen
     readMixedPage: (_pagePdf, pageNumber, layer) =>
       recorded(
         record,
-        'ocr',
+        modelName('ocr'),
         prepare(
           skills,
           'read-mixed-page',
@@ -313,7 +232,7 @@ function fakeReader(skills: readonly LoadedSkill[], record: RecordCall): Documen
     describeImage: (_image, filename) =>
       recorded(
         record,
-        'ocr',
+        modelName('ocr'),
         prepare(skills, 'describe-image', 'describe-image', filename).head,
         () => {
           failOn(filename)
@@ -329,7 +248,7 @@ function fakeReader(skills: readonly LoadedSkill[], record: RecordCall): Documen
     summarize: (text, filename) =>
       recorded(
         record,
-        'description',
+        modelName('description'),
         prepare(skills, 'summarize', 'describe-document', `${filename}\n${text}`).head,
         async () => {
           failOn(filename)

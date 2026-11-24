@@ -5,8 +5,8 @@ import { eq } from 'drizzle-orm'
 import { calendarDay } from '../../archive/query'
 import type { ProcessingStep } from '../../archive/types'
 import { closeDatabase, getDatabase } from '../../db/client'
-import { aiUsage, categories, documents, processingRuns } from '../../db/schema'
-import { costOfCall } from '../ai/prices'
+import { categories, documents, processingRuns } from '../../db/schema'
+import { storeCalls } from '../ai/calls'
 import type { PageText } from '../chat/chunks'
 import { getEmbedder } from '../chat/embedder'
 import { prepareChunks, writeChunks } from '../chat/index-service'
@@ -170,16 +170,14 @@ for (const id of ids) {
   }
 
   try {
-    const embedStarted = Date.now()
     const chunks = await prepareChunks({ id: documentId, title }, pages, embed)
-    const embedMs = Date.now() - embedStarted
     note(
       'Rozdělení na kousky pro chat',
       chunks.model === null
         ? 'Dokument nemá text, žádné kousky nevznikly.'
         : `Kousků: ${chunks.rows.length}\nModel pro embedding: ${chunks.model}`,
     )
-    if (chunks.model !== null) steps.push({ kind: 'call' })
+    if (chunks.call !== null) steps.push({ kind: 'call' })
 
     const runId = randomUUID()
     await database.transaction(async (transaction) => {
@@ -206,20 +204,12 @@ for (const id of ids) {
         pageCount: prepared.format === 'pdf' ? prepared.pages.length : null,
       })
       await writeChunks(transaction, documentId, chunks.rows)
-      if (chunks.model !== null) {
-        await transaction.insert(aiUsage).values({
-          runId,
-          documentId,
-          documentTitle: title,
-          format: prepared.format,
-          operation: 'embed',
-          model: chunks.model,
-          input: `Kousků textu: ${chunks.rows.length}`,
-          durationMs: embedMs,
-          inputTokens: chunks.tokens,
-          outputTokens: 0,
-          costUsd: costOfCall(chunks.model, chunks.tokens, 0),
-        })
+      if (chunks.call !== null) {
+        await storeCalls(
+          { runId, documentId, title, format: prepared.format },
+          [chunks.call],
+          transaction,
+        )
       }
 
       saved('documents.status', 'ready')
