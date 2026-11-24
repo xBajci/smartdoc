@@ -50,7 +50,7 @@ const saveLabel = (count: number) =>
 export async function uploadFiles(
   page: Page,
   files: TestFile[],
-  outcome: 'Připraveno' | 'Chyba' = 'Připraveno',
+  outcome: 'Zveřejněno' | 'Chyba' = 'Zveřejněno',
 ) {
   await openUploadWindow(page)
   await chooseFiles(page, files)
@@ -66,7 +66,7 @@ export async function uploadDemoFile(
   page: Page,
   source: string,
   name: string,
-  outcome: 'Připraveno' | 'Chyba' = 'Připraveno',
+  outcome: 'Zveřejněno' | 'Chyba' = 'Zveřejněno',
 ) {
   await uploadFiles(page, [demoFile(source, name)], outcome)
 }

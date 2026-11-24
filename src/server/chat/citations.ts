@@ -1,4 +1,4 @@
-import type { ChatPassage, ChatSource } from '../../archive/types'
+import type { ChatPassage, ChatSource } from '../../chat/types'
 
 /**
  * Turns the model's marks into the visitor's: the model cites pieces by the

@@ -1,4 +1,4 @@
-import type { ModelCall } from '../../archive/types'
+import type { ModelCall } from '../../ai/types'
 import { getDatabase, type Database } from '../../db/client'
 import { aiUsage } from '../../db/schema'
 import { costOfCall } from './prices'
@@ -67,7 +67,7 @@ export function reasonOf(caught: unknown): string {
 }
 
 /** What is known of a call before it is made. */
-export type CallHead = Pick<ModelCall, 'operation' | 'skillKey' | 'skills' | 'page' | 'input'>
+export type CallHead = Pick<ModelCall, 'operation' | 'use' | 'skills' | 'page' | 'input'>
 
 /** What a call that went well came to. */
 export interface CallResult<T> {

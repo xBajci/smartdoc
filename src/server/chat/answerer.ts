@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { generateText, stepCountIs, tool, type ModelMessage } from 'ai'
 import { z } from 'zod'
-import type { ChatPassage, ChatTraceStep } from '../../archive/types'
+import type { ChatPassage, ChatTraceStep } from '../../chat/types'
 import { FAKE_USAGE, spent } from '../ai/calls'
 import { languageModel, modelName, modelSetting } from '../ai/models'
 import {
@@ -22,7 +22,7 @@ export interface AnswerInput {
   question: string
   /** The system prompt and the skills of the chat, put together. */
   instructions: string
-  /** The earlier questions of the session as messages of the model (see `sessionHistory`). */
+  /** The earlier questions of the conversation as messages of the model (see `conversationHistory`). */
   history: readonly ModelMessage[]
   settings: ChatSettings
   /**
@@ -322,7 +322,7 @@ const SUM_SCRIPT = 'return parametry.castky.reduce((soucet, castka) => soucet + 
  * A question with "celkem" adds up the amounts in crowns of the found pieces in
  * the sandbox; with "chybny skript" as well, the first script has a syntax error.
  * A question with "dlouhy rozhovor" reports a prompt past CHAT_HISTORY_TOKENS,
- * so the next question of the session is answered from a summary.
+ * so the next question of the conversation is answered from a summary.
  * A question with "(pomalu)" reads every search a while, the first one too.
  */
 const fakeAnswerer: Answerer = async ({

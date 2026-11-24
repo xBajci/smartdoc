@@ -2,14 +2,15 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { normalizeLibrarySearch } from '~/archive/query'
 import { archive, loadArchive, useArchive } from '~/archive/store'
-import { MAX_CHAT_DOCUMENTS, type LibrarySearch } from '~/archive/types'
+import { isPublished, type LibrarySearch } from '~/archive/types'
 import { ChatPanel, type ChosenDocument } from '~/chat/ChatPanel'
+import { MAX_CHAT_DOCUMENTS } from '~/chat/types'
 import { AppHeader } from '~/components/AppHeader'
 import { Icon } from '~/components/Icon'
 import { useSidePanel } from '~/components/useSidePanel'
 import { cs } from '~/copy/cs'
 import { Library } from '~/library/Library'
-import { searchLibraryFn } from '~/server/archive'
+import { searchLibraryFn } from '~/server/archive-functions'
 import { DocumentOverlay } from '~/viewer/DocumentOverlay'
 import { Viewer } from '~/viewer/Viewer'
 
@@ -53,9 +54,7 @@ function LibraryPage() {
   const [chosen, setChosen] = useState<readonly ChosenDocument[]>([])
 
   const openDocument =
-    opened !== undefined && opened.id === search.doc && opened.status === 'ready'
-      ? opened
-      : undefined
+    opened !== undefined && opened.id === search.doc && isPublished(opened) ? opened : undefined
   // An image opens over the page; a PDF, or a document that is not there, takes the list's place.
   const openImage = openDocument?.format === 'image' ? openDocument : undefined
   const viewerOpen = search.doc !== undefined && openImage === undefined

@@ -1,7 +1,7 @@
 import type { ModelMessage } from 'ai'
 import { describe, expect, it } from 'vitest'
-import type { ChatTraceStep } from '../../archive/types'
-import { historyFromTraces, sessionHistory, summarized, SUMMARY_LEAD } from './history'
+import type { ChatTraceStep } from '../../chat/types'
+import { historyFromTraces, conversationHistory, summarized, SUMMARY_LEAD } from './history'
 import { MAX_TURN_CHARACTERS } from './settings'
 
 const answered = (number: number) => ({
@@ -41,7 +41,7 @@ describe('historyFromTraces', () => {
     expect(answer?.text).toHaveLength(MAX_TURN_CHARACTERS)
   })
 
-  it('is empty for the first question of a session', () => {
+  it('is empty for the first question of a conversation', () => {
     expect(historyFromTraces([])).toEqual([])
   })
 })
@@ -72,7 +72,7 @@ const traced = (number: number, numbers: number[], messages: ModelMessage[] | nu
   messages,
 })
 
-describe('sessionHistory', () => {
+describe('conversationHistory', () => {
   it('sends the stored messages of every earlier question again, unchanged and oldest first', () => {
     const first: ModelMessage[] = [
       { role: 'user', content: 'Otázka 1' },
@@ -83,26 +83,30 @@ describe('sessionHistory', () => {
       { role: 'assistant', content: 'Odpověď 2 [3]' },
     ]
     const failed = { ...traced(3, [5], second), error: 'Selhalo.' }
-    const history = sessionHistory([traced(1, [1, 2], first), traced(2, [3, 4], second), failed])
+    const history = conversationHistory([
+      traced(1, [1, 2], first),
+      traced(2, [3, 4], second),
+      failed,
+    ])
     expect(history.messages).toEqual([...first, ...second])
     expect(history.passages.map((item) => item.number)).toEqual([1, 2, 3, 4])
   })
 
-  it('numbers the next passage after every passage of the session, a failed question too', () => {
+  it('numbers the next passage after every passage of the conversation, a failed question too', () => {
     const failed = { ...traced(2, [7, 8]), error: 'Selhalo.' }
-    expect(sessionHistory([traced(1, [1, 2]), failed]).firstNumber).toBe(9)
-    expect(sessionHistory([]).firstNumber).toBe(1)
+    expect(conversationHistory([traced(1, [1, 2]), failed]).firstNumber).toBe(9)
+    expect(conversationHistory([]).firstNumber).toBe(1)
   })
 
   it('makes a question and its answer of a trace older than the messages', () => {
-    expect(sessionHistory([traced(1, [1])]).messages).toEqual([
+    expect(conversationHistory([traced(1, [1])]).messages).toEqual([
       { role: 'user', content: 'Otázka 1' },
       { role: 'assistant', content: 'Odpověď 1' },
     ])
   })
 
   it('tells the rewrite model the passages of each question as text, with the answer', () => {
-    const [visitor, archive] = sessionHistory([traced(1, [1])]).forRewrite
+    const [visitor, archive] = conversationHistory([traced(1, [1])]).forRewrite
     expect(visitor).toEqual({ role: 'visitor', text: 'Otázka 1' })
     expect(archive?.text).toBe(
       'Nalezené úryvky:\n[1] Dokument: Zápis, strana 2\nÚryvek 1.\n\nOdpověď: Odpověď 1',
@@ -143,7 +147,7 @@ describe('a summary in the history', () => {
       ...traced(3, [5, 6], third),
       steps: [summedUp('Ptal se na 1 a 2.', 2), searched(5, 6)],
     }
-    const history = sessionHistory([traced(1, [1, 2]), traced(2, [3, 4]), withSummary])
+    const history = conversationHistory([traced(1, [1, 2]), traced(2, [3, 4]), withSummary])
     expect(history.messages).toEqual([
       { role: 'user', content: `${SUMMARY_LEAD}\nPtal se na 1 a 2.` },
       ...third,
@@ -157,17 +161,17 @@ describe('a summary in the history', () => {
   it('is left out when it failed, and the whole history is sent', () => {
     const failed = { ...summedUp('', 1), error: 'Selhalo.' }
     const second = { ...traced(2, [3]), steps: [failed, searched(3)] }
-    expect(sessionHistory([traced(1, [1]), second]).questions).toBe(2)
+    expect(conversationHistory([traced(1, [1]), second]).questions).toBe(2)
   })
 
   it('knows how far the prompt grew from the last model call of the last answered question', () => {
     const last = { ...traced(2, [2]), steps: [modelCall(5000), searched(2), modelCall(9000)] }
-    expect(sessionHistory([traced(1, [1]), last]).promptTokens).toBe(9000)
-    expect(sessionHistory([]).promptTokens).toBe(0)
+    expect(conversationHistory([traced(1, [1]), last]).promptTokens).toBe(9000)
+    expect(conversationHistory([]).promptTokens).toBe(0)
   })
 
   it('once made, leaves no passage to cite and goes on with the numbers', () => {
-    const history = summarized(sessionHistory([traced(1, [1, 2]), traced(2, [3])]), 'Shrnutí.')
+    const history = summarized(conversationHistory([traced(1, [1, 2]), traced(2, [3])]), 'Shrnutí.')
     expect(history).toMatchObject({ passages: [], firstNumber: 4, questions: 2, promptTokens: 0 })
     expect(history.messages).toEqual([{ role: 'user', content: `${SUMMARY_LEAD}\nShrnutí.` }])
   })

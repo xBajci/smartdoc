@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs'
-import { eq } from 'drizzle-orm'
-import type { ChatHit } from '../../archive/types'
+import type { ChatHit } from '../../chat/types'
 import { closeDatabase, getDatabase } from '../../db/client'
 import { documents } from '../../db/schema'
+import { published } from '../published'
 import { getEmbedder } from './embedder'
 import { fuseRanks } from './fusion'
 import { answerQuestion } from './question'
@@ -37,7 +37,7 @@ const questions = parseSearchQuestions(readFileSync(QUESTIONS_FILE, 'utf8'))
 const ready = await getDatabase()
   .select({ id: documents.id, title: documents.title })
   .from(documents)
-  .where(eq(documents.status, 'ready'))
+  .where(published())
 
 /** The id of every expected document; a title that fits no document or several stops the run. */
 function documentIdsOf(question: SearchQuestion): string[] {

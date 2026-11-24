@@ -19,7 +19,7 @@ Feature: Nahrávání dokumentů
     Then popis prvního souboru zůstal zachovaný
     When zvolí "Uložit 2 soubory"
     Then okno se samo zavře
-    And oba dokumenty jsou v přehledu a skončí stavem "Připraveno"
+    And oba dokumenty jsou v přehledu a skončí stavem "Zveřejněno"
     And po novém načtení stránky jsou dokumenty stále v přehledu
     And knihovna ukazuje 14 dokumentů
     And první dokument má v knihovně vlastní popis a kategorii "Smlouvy"
@@ -36,7 +36,7 @@ Feature: Nahrávání dokumentů
     When správce uloží soubor a okno se zavře
     Then dokument je v přehledu se stavem "Zpracovává se"
     When zpracování skončí
-    Then dokument má stav "Připraveno"
+    Then dokument má stav "Zveřejněno"
 
   Scenario: Nahraný soubor lze otevřít a stáhnout beze změny
     Given správce nahrál soubor "studie-stezky.pdf"

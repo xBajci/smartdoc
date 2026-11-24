@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { archive } from '~/archive/store'
-import type { ArchiveDocument, ChatUpdate } from '~/archive/types'
+import type { ArchiveDocument } from '~/archive/types'
+import type { ChatUpdate } from '~/chat/types'
 import { FileBadge } from '~/components/FileBadge'
 import { Icon } from '~/components/Icon'
 import { cs, fill } from '~/copy/cs'
-import { askArchiveFn, rateChatFn } from '~/server/archive'
+import { askArchiveFn, rateChatFn } from '~/server/chat/functions'
 import type { ChatMessage, ChatSource } from './types'
 
 export type ChosenDocument = Pick<ArchiveDocument, 'id' | 'title'>
@@ -84,7 +85,7 @@ function ProgressStep({ text }: Readonly<{ text: string }>) {
 }
 
 /**
- * The chat over the archive. The server keeps the conversation under a session
+ * The chat over the archive. The server keeps the conversation under a conversation
  * id; the panel only holds the id in memory and sends it with the next
  * question, so a closed page starts a new conversation.
  */
@@ -110,13 +111,13 @@ export function ChatPanel({
   }, [chosen.length])
   const asked = useRef(0)
   /** From the last answer; `undefined` until the first one. */
-  const sessionId = useRef<string | undefined>(undefined)
+  const conversationId = useRef<string | undefined>(undefined)
 
-  // "Nový chat" forgets the conversation: the server gets no session id, so it
+  // "Nový chat" forgets the conversation: the server gets no conversation id, so it
   // starts a new one. The chosen documents stay, they are a choice of the list.
   const [conversation, setConversation] = useState(0)
   function startAgain() {
-    sessionId.current = undefined
+    conversationId.current = undefined
     asked.current = 0
     setMessages([])
     setDocuments([])
@@ -197,7 +198,7 @@ export function ChatPanel({
           continue
         }
         const { answer } = update
-        if (answer.ok) sessionId.current = answer.sessionId
+        if (answer.ok) conversationId.current = answer.conversationId
         settle(
           answer.ok
             ? { text: answer.text, sources: answer.sources, traceId: answer.traceId }
@@ -211,7 +212,7 @@ export function ChatPanel({
     askArchiveFn({
       data: {
         question: trimmed,
-        sessionId: sessionId.current,
+        conversationId: conversationId.current,
         scope: chosen.length === 0 ? 'archive' : 'documents',
         documentIds: chosen.map((document) => document.id),
       },

@@ -1,6 +1,6 @@
 import { createFileRoute, useRouter } from '@tanstack/react-router'
 import { useState, type FormEvent } from 'react'
-import type { SkillsReport, SkillView } from '~/archive/types'
+import type { SkillsReport, SkillView } from '~/ai/types'
 import { Dialog } from '~/components/Dialog'
 import { Icon } from '~/components/Icon'
 import { cs, fill } from '~/copy/cs'
@@ -11,7 +11,7 @@ import {
   resetSkillFn,
   saveSkillFn,
   updateSkillFn,
-} from '~/server/archive'
+} from '~/server/ai/functions'
 
 export const Route = createFileRoute('/sprava/skilly')({
   loader: () => getSkillsFn(),

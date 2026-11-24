@@ -1,11 +1,11 @@
 import { and, asc, count, desc, eq, isNull, ne, sql, type SQL } from 'drizzle-orm'
 import type {
   ChatFeedbackFilter,
-  ChatSessionSummary,
+  ChatConversationSummary,
   ChatTrace,
   ChatTraceStep,
   ChatTraceSummary,
-} from '../../archive/types'
+} from '../../chat/types'
 import { getDatabase } from '../../db/client'
 import { chatTraces } from '../../db/schema'
 import { sendFeedback, type Feedback } from './mlflow'
@@ -13,7 +13,7 @@ import { sendFeedback, type Feedback } from './mlflow'
 // What happens to a question after it was answered: the visitor's word about
 // the answer, and the lists the debugger reads. Asking is in `question.ts`.
 
-const RECENT_SESSIONS = 100
+const RECENT_CONVERSATIONS = 100
 
 /**
  * Stores what the visitor said of one answer: whether they found in it what
@@ -28,7 +28,7 @@ export async function rateChatAnswer(traceId: string, helpful: boolean): Promise
     .set({ helpful, ratedAt: new Date() })
     .where(and(eq(chatTraces.id, traceId), isNull(chatTraces.error), ne(chatTraces.answer, '')))
     .returning({
-      sessionId: chatTraces.sessionId,
+      conversationId: chatTraces.conversationId,
       mlflowTraceId: chatTraces.mlflowTraceId,
       mlflowFeedbackId: chatTraces.mlflowFeedbackId,
       // A subquery sees the row as it was before this update.
@@ -42,8 +42,8 @@ export async function rateChatAnswer(traceId: string, helpful: boolean): Promise
       mlflowTraceId: rated.mlflowTraceId,
       feedbackId: rated.mlflowFeedbackId,
       helpful,
-      // The session stands for the visitor: MLflow sees which words came from one conversation.
-      visitor: rated.sessionId,
+      // The conversation stands for the visitor: MLflow sees which words came from one conversation.
+      visitor: rated.conversationId,
     })
   }
   return true
@@ -62,11 +62,11 @@ async function forwardFeedback(traceId: string, feedback: Feedback) {
     )
 }
 
-/** How many questions of a session carry the given word of the visitor. */
+/** How many questions of a conversation carry the given word of the visitor. */
 const answersRated = (helpful: boolean) =>
   sql<number>`(count(*) filter (where ${chatTraces.helpful} = ${helpful}))::int`
 
-/** The sessions a filter of the debugger lets through: those with at least one such answer. */
+/** The conversations a filter of the debugger lets through: those with at least one such answer. */
 const FEEDBACK_FILTERS: Record<ChatFeedbackFilter, SQL | undefined> = {
   all: undefined,
   rated: sql`count(${chatTraces.helpful}) > 0`,
@@ -108,17 +108,17 @@ function toSummary(row: {
 }
 
 /**
- * The sessions with the most recent questions, newest activity first. The
- * filter chooses before the count is cut, so it reaches older sessions too.
+ * The conversations with the most recent questions, newest activity first. The
+ * filter chooses before the count is cut, so it reaches older conversations too.
  */
-export async function listChatSessions(
+export async function listChatConversations(
   filter: ChatFeedbackFilter = 'all',
-): Promise<ChatSessionSummary[]> {
+): Promise<ChatConversationSummary[]> {
   // Decoded like the column itself; the driver would hand a bare aggregate over as text.
   const lastAt = sql`max(${chatTraces.createdAt})`.mapWith(chatTraces.createdAt)
   const rows = await getDatabase()
     .select({
-      sessionId: chatTraces.sessionId,
+      conversationId: chatTraces.conversationId,
       firstQuestion: sql<string>`(array_agg(${chatTraces.question} order by ${chatTraces.createdAt}))[1]`,
       questions: count(),
       lastAt,
@@ -130,19 +130,19 @@ export async function listChatSessions(
       unhelpfulAnswers: answersRated(false),
     })
     .from(chatTraces)
-    .groupBy(chatTraces.sessionId)
+    .groupBy(chatTraces.conversationId)
     .having(FEEDBACK_FILTERS[filter])
     .orderBy(desc(lastAt))
-    .limit(RECENT_SESSIONS)
+    .limit(RECENT_CONVERSATIONS)
   return rows.map((row) => ({ ...row, lastAt: row.lastAt.toISOString() }))
 }
 
-/** The questions of one session, oldest first; empty when no trace has the id. */
-export async function findChatSession(sessionId: string): Promise<ChatTraceSummary[]> {
+/** The questions of one conversation, oldest first; empty when no trace has the id. */
+export async function findChatConversation(conversationId: string): Promise<ChatTraceSummary[]> {
   const rows = await getDatabase()
     .select(summaryColumns)
     .from(chatTraces)
-    .where(eq(chatTraces.sessionId, sessionId))
+    .where(eq(chatTraces.conversationId, conversationId))
     .orderBy(asc(chatTraces.createdAt))
   return rows.map(toSummary)
 }
@@ -152,7 +152,7 @@ export async function findChatTrace(id: string): Promise<ChatTrace | null> {
   if (row === undefined) return null
   return {
     ...toSummary(row),
-    sessionId: row.sessionId,
+    conversationId: row.conversationId,
     history: row.history,
     answer: row.answer,
     error: row.error,

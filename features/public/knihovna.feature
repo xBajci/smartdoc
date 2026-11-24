@@ -5,7 +5,7 @@ Feature: Veřejná knihovna dokumentů
   Seznam je seskupený podle dne přidání. Řadí se výběrem řazení. Řádek otevře dokument kliknutím.
 
   Scenario: Seznam ukazuje jen zveřejněné dokumenty
-    Given archiv obsahuje připravené dokumenty i dokumenty ve zpracování
+    Given archiv obsahuje zveřejněné dokumenty i dokumenty ve zpracování
     When návštěvník otevře knihovnu
     Then vidí 12 dokumentů
     And seznam není tabulka a je seskupený podle dne přidání
@@ -113,8 +113,8 @@ Feature: Veřejná knihovna dokumentů
     Given text dokumentu "Zápis z 9. zasedání zastupitelstva" mluví o veřejném osvětlení
     When návštěvník hledá "verejne osvetleni"
     Then vidí jen dokument "Zápis z 9. zasedání zastupitelstva"
-    And pod popisem je úryvek "V textu:" s nalezeným místem
-    And hledaná slova jsou v úryvku zvýrazněná
+    And pod popisem je nalezené místo "V textu:"
+    And hledaná slova jsou v nalezeném místě zvýrazněná
 
   Scenario: Hledání najde slovo podle jeho začátku a řadí podle shody
     When návštěvník hledá "cyklost"

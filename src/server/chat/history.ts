@@ -1,9 +1,9 @@
 import type { ModelMessage } from 'ai'
-import type { ChatPassage, ChatTraceStep, ChatTurn } from '../../archive/types'
+import type { ChatPassage, ChatTraceStep, ChatTurn } from '../../chat/types'
 import { passagesForModel } from './retrieval'
 import { MAX_TURN_CHARACTERS } from './settings'
 
-/** What of an earlier trace of the session the history is made from. */
+/** What of an earlier trace of the conversation the history is made from. */
 export interface AnsweredTrace {
   question: string
   answer: string
@@ -33,15 +33,15 @@ export function turnsAsMessages(turns: readonly ChatTurn[]): ModelMessage[] {
   }))
 }
 
-/** An earlier question of the session, with what the history needs of it. */
+/** An earlier question of the conversation, with what the history needs of it. */
 export interface EarlierTrace extends AnsweredTrace {
   steps: readonly ChatTraceStep[]
   /** `null` in traces older than the messages. */
   messages: readonly ModelMessage[] | null
 }
 
-/** What the next question of a session is told of the earlier ones. */
-export interface SessionHistory {
+/** What the next question of a conversation is told of the earlier ones. */
+export interface ConversationHistory {
   /** Questions and answers, as the debugger shows them. */
   turns: ChatTurn[]
   /**
@@ -55,7 +55,7 @@ export interface SessionHistory {
   forRewrite: ChatTurn[]
   /** Passages the questions after the summary found; the new answer may cite them. */
   passages: ChatPassage[]
-  /** The number of the next passage: the numbers run on through the whole session, so no two passages share one. */
+  /** The number of the next passage: the numbers run on through the whole conversation, so no two passages share one. */
   firstNumber: number
   /** Questions the history stands for, those in the summary included. */
   questions: number
@@ -63,7 +63,7 @@ export interface SessionHistory {
   promptTokens: number
 }
 
-export const NO_HISTORY: SessionHistory = {
+export const NO_HISTORY: ConversationHistory = {
   turns: [],
   messages: [],
   forRewrite: [],
@@ -96,11 +96,11 @@ const summaryTurn = (text: string): ChatTurn => ({
 })
 
 /**
- * The history of a session from its earlier questions, oldest first. The
+ * The history of a conversation from its earlier questions, oldest first. The
  * newest summary stands for every question before the one that made it; the
  * questions from that one on come whole. A failed question is left out.
  */
-export function sessionHistory(traces: readonly EarlierTrace[]): SessionHistory {
+export function conversationHistory(traces: readonly EarlierTrace[]): ConversationHistory {
   const newest = newestSummary(traces)
   const since = newest === null ? traces : traces.slice(newest.index)
   const kept = since.filter(isAnswered)
@@ -146,7 +146,7 @@ export function sessionHistory(traces: readonly EarlierTrace[]): SessionHistory 
  * The history once it is summed up: the summary stands for all of it, the
  * passages before it can no longer be cited, and the numbers go on.
  */
-export function summarized(history: SessionHistory, text: string): SessionHistory {
+export function summarized(history: ConversationHistory, text: string): ConversationHistory {
   const lead = summaryTurn(text)
   return {
     turns: [lead],

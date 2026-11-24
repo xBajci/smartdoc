@@ -6,6 +6,7 @@ import { closeDatabase, getDatabase } from '../../db/client'
 import { categories, documents } from '../../db/schema'
 import { costOfCalls, recorded, storeCalls, type ModelCall } from '../ai/calls'
 import { languageModel, missingKey, modelName } from '../ai/models'
+import { published } from '../published'
 import {
   GLOSSARY_FILE,
   GLOSSARY_INSTRUCTIONS,
@@ -35,7 +36,7 @@ const rows = await database
   })
   .from(documents)
   .innerJoin(categories, eq(documents.categoryId, categories.id))
-  .where(eq(documents.status, 'ready'))
+  .where(published())
 
 const input = glossaryInput(
   rows.map((row) => ({
@@ -54,7 +55,7 @@ const text = await recorded(
   model,
   {
     operation: 'glossary',
-    skillKey: null,
+    use: null,
     skills: null,
     page: null,
     input: `Dokumentů: ${rows.length}`,

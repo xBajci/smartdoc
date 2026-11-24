@@ -1,8 +1,9 @@
 import { asc, count, desc, eq, sql } from 'drizzle-orm'
-import type { DocumentDebug, ProcessingRun, SessionCall } from '../archive/types'
+import type { RecordedCall } from '../ai/types'
 import { cs, fill } from '../copy/cs'
 import { getDatabase } from '../db/client'
 import { aiUsage, categories, documentChunks, documents, processingRuns } from '../db/schema'
+import type { DocumentDebug, ProcessingRun } from '../processing/types'
 
 /** Runs of one document the debug panel shows; older ones are left out. */
 const SHOWN_RUNS = 10
@@ -58,7 +59,7 @@ export async function documentDebug(id: string): Promise<DocumentDebug | null> {
         id: aiUsage.id,
         operation: aiUsage.operation,
         model: aiUsage.model,
-        skillKey: aiUsage.skillKey,
+        use: aiUsage.use,
         skillVersion: aiUsage.skillVersion,
         skills: aiUsage.skills,
         page: aiUsage.page,
@@ -77,7 +78,7 @@ export async function documentDebug(id: string): Promise<DocumentDebug | null> {
   if (row === undefined) return null
   const { document, category } = row
 
-  const callsByRun = new Map<string, { at: string; calls: SessionCall[] }>()
+  const callsByRun = new Map<string, { at: string; calls: RecordedCall[] }>()
   for (const { runId, at: madeAt, ...call } of calls) {
     const run = callsByRun.get(runId) ?? { at: madeAt, calls: [] }
     run.calls.push(call)
@@ -86,7 +87,7 @@ export async function documentDebug(id: string): Promise<DocumentDebug | null> {
 
   const run = (
     head: Pick<ProcessingRun, 'runId' | 'at' | 'outcome' | 'error' | 'durationMs' | 'steps'>,
-    runCalls: SessionCall[],
+    runCalls: RecordedCall[],
   ): ProcessingRun => ({
     ...head,
     calls: runCalls,
@@ -142,7 +143,7 @@ export async function documentDebug(id: string): Promise<DocumentDebug | null> {
     ['documents.has_text', document.hasText],
     ['documents.custom_description', document.customDescription],
     ['documents.short_description', document.shortDescription],
-    ['documents.auto_description', document.autoDescription],
+    ['documents.auto_description', document.extractedText],
     ['document_chunks', fill(cs.trace.rows, { count: pieces?.total ?? 0 })],
     ['document_chunks.embedding', fill(cs.trace.rows, { count: pieces?.embedded ?? 0 })],
     ['document_chunks.embedding_model', pieces?.model ?? null],

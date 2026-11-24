@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import type { ModelCall } from '../../archive/types'
+import type { ModelCall } from '../../ai/types'
 import type { Database } from '../../db/client'
 import { documentChunks } from '../../db/schema'
 import { spent } from '../ai/calls'
@@ -38,7 +38,7 @@ export async function prepareChunks(
     call: {
       operation: 'embed',
       model,
-      skillKey: null,
+      use: null,
       skills: null,
       page: null,
       input: `Kousků textu: ${chunks.length}`,

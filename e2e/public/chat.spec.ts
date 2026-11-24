@@ -145,7 +145,7 @@ test.describe('Chat nad archivem', () => {
     await expect(chat(page).locator('.chat-sources')).toHaveCount(0)
   })
 
-  test('Navazující otázka použije předchozí konverzaci', async ({ page }) => {
+  test('Navazující otázka použije předchozí rozhovor', async ({ page }) => {
     await ask(page, 'Kdo vymění veřejné osvětlení?')
     await ask(page, 'Kolik?')
     await expect(answers(page)).toHaveCount(2)
@@ -153,7 +153,7 @@ test.describe('Chat nad archivem', () => {
     await expect(answers(page).last()).toContainText('Zápis z 9. zasedání zastupitelstva')
   })
 
-  test('„Nový chat“ začne konverzaci od začátku', async ({ page }) => {
+  test('„Nový chat“ začne rozhovor od začátku', async ({ page }) => {
     const startAgain = chat(page).getByRole('button', { name: 'Nový chat' })
     await expect(startAgain).toHaveCount(0)
     await ask(page, 'Kdo vymění veřejné osvětlení?')

@@ -1,11 +1,10 @@
 import { randomUUID } from 'node:crypto'
-import { and, eq, lt, ne, or, sql } from 'drizzle-orm'
-import { calendarDay } from '../archive/query'
-import type { ProcessingStep } from '../archive/types'
+import { eq } from 'drizzle-orm'
 import { cs, fill } from '../copy/cs'
 import { getDatabase } from '../db/client'
-import { categories, documents, processingRuns, type DocumentRow } from '../db/schema'
-import { recorded, storeCalls, type ModelCall, type RecordCall } from './ai/calls'
+import { categories, documents, type DocumentRow } from '../db/schema'
+import type { ProcessingStep } from '../processing/types'
+import { recorded, type ModelCall, type RecordCall } from './ai/calls'
 import {
   categoryCriteria,
   getCategorizer,
@@ -13,31 +12,26 @@ import {
   type CategoryChoice,
 } from './ai/categorizer'
 import { missingKey, modelName } from './ai/models'
-import { getReader, type DocumentReader, type Summary } from './ai/reader'
+import { getReader, type DocumentReader } from './ai/reader'
 import { instructionsFor, type LoadedSkill } from './ai/skills'
 import type { PageText } from './chat/chunks'
 import { getEmbedder } from './chat/embedder'
-import { prepareChunks, writeChunks } from './chat/index-service'
+import { prepareChunks } from './chat/index-service'
+import { byProcessing, categoryChoice, titleAfter, type Found } from './document-changes'
 import { hasTextLayer, pageCutter, readPages, type PageLayout } from './pdf-text'
+import { keepCalls, postgresStore, type ProcessingStore } from './processing-store'
 import { loadSkills } from './skills-service'
 import { getStorage } from './storage'
 
 export const MAX_PDF_PAGES = 300
 /** Scanned pages read at the same time. */
 const OCR_CONCURRENCY = 3
-/** A run that has not finished in this time is taken for dead and may be started again. */
-const STALE_AFTER_MINUTES = 10
-
 /** A failure whose reason the administrator can read and act on. */
 class ProcessingError extends Error {}
 
-interface Extracted {
-  /** Goes to `auto_description`: the whole text of a PDF, or the paragraph about an image. */
-  text: string
-  /** The same text page by page; the chat searches in pieces of it. */
+interface Extracted extends Found {
+  /** The text of the document page by page; the chat searches in pieces of it. */
   pages: PageText[]
-  pageCount: number | null
-  summary: Summary | null
 }
 
 /** How much of a stored value the record of a run keeps. */
@@ -207,7 +201,7 @@ async function categorize(
   const guidance = instructionsFor(skills, 'categorize')
   const head = {
     operation: 'categorize' as const,
-    skillKey: 'categorize',
+    use: 'categorize',
     skills: guidance.skills,
     page: null,
     // The record shows what the model decided from: the document and the wording of each category.
@@ -244,47 +238,37 @@ async function categorize(
   }
 }
 
-function validYear(year: number | null): number | null {
-  return year !== null && year >= 1000 && year <= new Date().getFullYear() + 1 ? year : null
+/**
+ * What a processing run reaches outside itself for. The application gives the
+ * archive in Postgres and its file storage; the tests of a run give their own.
+ * The models are the ones the settings name, as everywhere.
+ */
+export interface ProcessingWorld {
+  store: ProcessingStore
+  /** The original of a document from file storage; `null` when it is not there. */
+  original: (storageKey: string) => Promise<Buffer | null>
+  /** The skills in force now (see `loadSkills`). */
+  skills: () => Promise<LoadedSkill[]>
 }
 
-/**
- * Takes the document for processing. Only one caller gets it: the update
- * matches a document that is not being processed, or whose run went stale.
- */
-async function claim(id: string): Promise<DocumentRow | undefined> {
-  const [row] = await getDatabase()
-    .update(documents)
-    .set({ status: 'processing', errorReason: null, processingStartedAt: new Date() })
-    .where(
-      and(
-        eq(documents.id, id),
-        or(
-          ne(documents.status, 'processing'),
-          sql`${documents.processingStartedAt} is null`,
-          lt(
-            documents.processingStartedAt,
-            sql`now() - make_interval(mins => ${STALE_AFTER_MINUTES})`,
-          ),
-        ),
-      ),
-    )
-    .returning()
-  return row
+/** What the application processes: the documents in Postgres and their files in storage. */
+const ARCHIVE: ProcessingWorld = {
+  store: postgresStore,
+  original: (storageKey) => getStorage().readAll(storageKey),
+  skills: () => loadSkills(),
 }
 
 /**
  * Reads the content of one document and writes what it found. The document is
- * `ready` (and public) only when all of it went well; otherwise it is `failed`
+ * `ready` (and published) only when all of it went well; otherwise it is `failed`
  * with a reason and can be processed again.
  */
-export async function processDocument(id: string): Promise<void> {
-  const row = await claim(id)
+export async function processDocument(id: string, world: ProcessingWorld = ARCHIVE): Promise<void> {
+  const { store } = world
+  const row = await store.claim(id)
   if (row === undefined) return
-  const database = getDatabase()
   const started = Date.now()
   const trace = new RunTrace()
-  const calls = trace.calls
   let failure: string | null = null
 
   try {
@@ -292,10 +276,10 @@ export async function processDocument(id: string): Promise<void> {
     if (missing !== null)
       throw new ProcessingError(fill(cs.processing.noKey, { variable: missing }))
 
-    const available = await database.select().from(categories)
-    const skills = await loadSkills()
+    const available = await store.categories()
+    const skills = await world.skills()
     const reader = getReader(skills, trace.call)
-    const original = await getStorage().readAll(row.storageKey)
+    const original = await world.original(row.storageKey)
     if (original === null) throw new ProcessingError(cs.processing.fileMissing)
     trace.note(
       cs.trace.file,
@@ -313,27 +297,19 @@ export async function processDocument(id: string): Promise<void> {
     const summary = extracted.summary
 
     // The administrator may have edited the document while it was being read.
-    const [current] = await database.select().from(documents).where(eq(documents.id, id))
+    const current = await store.current(id)
     if (current === undefined) return
 
-    const title = summary?.title.trim().slice(0, 300) ?? ''
-    // The file name stays visible next to the name, so nothing is lost by replacing it.
-    const renamed = current.titleSource !== 'manual' && title !== ''
-    // A whole date says the year too; a date outside the years a document may carry is dropped.
-    const day = calendarDay(summary?.issuedOn ?? null)
-    const issuedOn = day !== null && validYear(Number(day.slice(0, 4))) !== null ? day : null
-    const year =
-      issuedOn === null ? validYear(summary?.issuedYear ?? null) : Number(issuedOn.slice(0, 4))
-    const dated = current.issuedYearSource !== 'manual' && year !== null
+    const title = titleAfter(current, summary)
     // A category the administrator chose stays; otherwise the decision model picks one.
-    if (current.categorySource === 'manual') trace.note(cs.trace.categoryKept)
-    else if (extracted.text === '') trace.note(cs.trace.categoryNoText)
+    const choice = categoryChoice(current, extracted.text)
+    if (choice === 'kept') trace.note(cs.trace.categoryKept)
+    else if (choice === 'no-text') trace.note(cs.trace.categoryNoText)
     const chosen =
-      current.categorySource === 'manual' || extracted.text === ''
-        ? null
-        : await categorize(
+      choice === 'ask'
+        ? await categorize(
             {
-              title: renamed ? title : current.title,
+              title,
               filename: row.originalFilename,
               description: summary?.shortDescription ?? '',
               text: extracted.text,
@@ -342,18 +318,14 @@ export async function processDocument(id: string): Promise<void> {
             trace.call,
             skills,
           )
+        : null
     const category = available.find((candidate) => candidate.name === chosen)
-    const filed = category !== undefined
-    if (current.categorySource !== 'manual' && extracted.text !== '' && !filed) {
+    if (choice === 'ask' && category === undefined) {
       trace.note(cs.trace.category, cs.trace.categoryUnknown)
     }
 
     // Pieces for the chat, under the name the document ends up with.
-    const chunks = await prepareChunks(
-      { id, title: renamed ? title : current.title },
-      extracted.pages,
-      getEmbedder(),
-    )
+    const chunks = await prepareChunks({ id, title }, extracted.pages, getEmbedder())
     trace.note(
       cs.trace.chunks,
       chunks.model === null
@@ -362,52 +334,12 @@ export async function processDocument(id: string): Promise<void> {
     )
     if (chunks.call !== null) trace.call(chunks.call)
 
-    // The document and its pieces change together, so the chat never reads half of each.
-    await database.transaction(async (transaction) => {
-      await transaction
-        .update(documents)
-        .set({
-          status: 'ready',
-          autoDescription: extracted.text,
-          shortDescription: summary?.shortDescription.trim() ?? '',
-          hasText: extracted.text !== '',
-          pageCount: extracted.pageCount,
-          ...(renamed ? { title, titleSource: 'auto' as const } : {}),
-          ...(dated ? { issuedYear: year, issuedOn, issuedYearSource: 'auto' as const } : {}),
-          ...(filed ? { categoryId: category.id, categorySource: 'auto' as const } : {}),
-        })
-        .where(eq(documents.id, id))
-      await writeChunks(transaction, id, chunks.rows)
-    })
+    const changes = byProcessing(current, extracted, category)
+    await store.finish(id, changes.values, chunks.rows)
 
-    trace.saved('documents.status', 'ready')
-    trace.saved('documents.auto_description', extracted.text)
-    trace.saved('documents.short_description', summary?.shortDescription.trim() ?? '')
-    trace.saved('documents.has_text', extracted.text !== '')
-    trace.saved('documents.page_count', extracted.pageCount)
-    if (renamed) {
-      trace.saved('documents.title', title)
-      trace.saved('documents.title_source', 'auto')
-    }
-    if (dated) {
-      trace.saved('documents.issued_year', year)
-      trace.saved('documents.issued_on', issuedOn)
-      trace.saved('documents.issued_year_source', 'auto')
-    }
-    if (filed) {
-      trace.saved('documents.category_id', `${category.id} (${category.name})`)
-      trace.saved('documents.category_source', 'auto')
-    }
+    for (const { target, value } of changes.saved) trace.saved(target, value)
     trace.saved('document_chunks', fill(cs.trace.rows, { count: chunks.rows.length }))
-    const kept = [
-      renamed ? null : current.titleSource === 'manual' ? cs.trace.titleKept : cs.trace.titleEmpty,
-      dated
-        ? null
-        : current.issuedYearSource === 'manual'
-          ? cs.trace.yearKept
-          : cs.trace.yearUnknown,
-    ].filter((line) => line !== null)
-    if (kept.length > 0) trace.note(cs.trace.kept, kept.join('\n'))
+    if (changes.kept.length > 0) trace.note(cs.trace.kept, changes.kept.join('\n'))
   } catch (error) {
     if (!(error instanceof ProcessingError)) console.error(`Processing of ${id} failed:`, error)
     failure = error instanceof ProcessingError ? error.message : cs.processing.aiFailed
@@ -417,30 +349,20 @@ export async function processDocument(id: string): Promise<void> {
         ? failure
         : `${failure}\n${error.message}`,
     )
-    await database
-      .update(documents)
-      .set({ status: 'failed', errorReason: failure })
-      .where(eq(documents.id, id))
+    await store.fail(id, failure)
     trace.saved('documents.status', 'failed')
     trace.saved('documents.error_reason', failure)
   } finally {
-    const runId = randomUUID()
-    // Calls made before a failure were paid for too.
-    await recordCalls(row, calls, runId).catch((error: unknown) => {
-      console.error(`Usage of ${id} was not recorded:`, error)
-    })
-    // The document may have been removed while it was being read; then there is nothing to hang the run on.
-    await database
-      .insert(processingRuns)
-      .values({
-        id: runId,
-        documentId: id,
+    await store.keepRun(
+      row,
+      {
         outcome: failure === null ? 'ready' : 'failed',
         error: failure,
         steps: trace.steps,
         durationMs: Date.now() - started,
-      })
-      .catch(() => {})
+      },
+      trace.calls,
+    )
   }
 }
 
@@ -452,9 +374,7 @@ export async function processDocument(id: string): Promise<void> {
 export async function categorizeDocument(id: string): Promise<string | null> {
   const database = getDatabase()
   const [row] = await database.select().from(documents).where(eq(documents.id, id))
-  if (row === undefined || row.categorySource === 'manual' || row.autoDescription === '') {
-    return null
-  }
+  if (row === undefined || categoryChoice(row, row.extractedText) !== 'ask') return null
   const available = await database.select().from(categories)
   const calls: ModelCall[] = []
   const chosen = await categorize(
@@ -462,7 +382,7 @@ export async function categorizeDocument(id: string): Promise<string | null> {
       title: row.title,
       filename: row.originalFilename,
       description: row.shortDescription,
-      text: row.autoDescription,
+      text: row.extractedText,
     },
     available,
     (call) => calls.push(call),
@@ -475,25 +395,6 @@ export async function categorizeDocument(id: string): Promise<string | null> {
       .set({ categoryId: category.id, categorySource: 'auto' })
       .where(eq(documents.id, id))
   }
-  await recordCalls(row, calls, randomUUID())
+  await keepCalls(row, calls, randomUUID())
   return category?.name ?? null
-}
-
-/** The calls of one run form one session, under `runId`. */
-async function recordCalls(row: DocumentRow, calls: readonly ModelCall[], runId: string) {
-  if (calls.length === 0) return
-  // The document may have been removed while it was being read.
-  const [current] = await getDatabase()
-    .select({ title: documents.title })
-    .from(documents)
-    .where(eq(documents.id, row.id))
-  await storeCalls(
-    {
-      runId,
-      documentId: current === undefined ? null : row.id,
-      title: current?.title ?? row.title,
-      format: row.format,
-    },
-    calls,
-  )
 }

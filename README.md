@@ -9,6 +9,7 @@ Obrázek dostane zmenšený náhled. Chat odpovídá z dokumentů a uvádí zdro
 - Návrh: [`docs/superpowers/specs/2026-11-11-archiv-obce-design.md`](docs/superpowers/specs/2026-11-11-archiv-obce-design.md)
 - Návrh chatu: [`docs/superpowers/specs/2026-11-12-chat-design.md`](docs/superpowers/specs/2026-11-12-chat-design.md)
 - Scénáře: [`features/README.md`](features/README.md)
+- Slovník pojmů: [`GLOSSARY.md`](GLOSSARY.md)
 
 ## První spuštění
 
@@ -71,6 +72,17 @@ jako tabulku v Markdownu, na místo obrázku řádek „[Obrázek: …]“. Kdy�
 nepřečte, použije se její textová vrstva. Dokument se zveřejní, jen když zpracování skončí dobře. Jinak má stav
 „Chyba“ s důvodem a správce ho spustí znovu tlačítkem „Zpracovat znovu“.
 
+Tři pravidla mají každé jedno místo v kódu:
+
+| Pravidlo | Kde |
+| --- | --- |
+| Který dokument je zveřejněný, tedy co vidí návštěvník. | `src/server/published.ts` |
+| Co zapíše nahrání, úprava správce a běh zpracování. Název, datum a kategorii od správce zpracování nepřepíše. | `src/server/document-changes.ts` |
+| Pořadí jednoho běhu zpracování. | `src/server/processing.ts` |
+
+Běh zpracování sahá ven jen přes `ProcessingWorld`: archiv (`src/server/processing-store.ts`), soubor z úložiště
+a skilly. Testy v `processing.test.ts` zpracují dokument stejně jako aplikace, s náhradními modely a archivem v paměti.
+
 Modely se nastavují v `.env` ve tvaru `dodavatel:model` (`openai` nebo `anthropic`):
 
 | Proměnná | K čemu | Výchozí |
@@ -123,7 +135,7 @@ Hledá server, ne prohlížeč. Funkce je v `src/server/search-service.ts`.
 - Dokument odpovídá, když má ke každému hledanému slovu slovo, které jím začíná. Skloňování
   hledání nezná: „rozpočet“ nenajde „rozpočtu“, „rozpoč“ najde obojí.
 - Výsledky hledání se řadí podle shody. Shoda v názvu váží nejvíc, shoda v textu nejmíň.
-  Když se slovo našlo v textu, seznam ukáže úryvek „V textu: …“.
+  Když se slovo našlo v textu, seznam ukáže nalezené místo „V textu: …“.
 - Seznam v knihovně ukáže prvních 10 dokumentů a tlačítko „Zobrazit další“ přidá dalších 10; počet je v adrese (`pocet`). Seznam je seskupený podle dne přidání a řadí se výběrem řazení.
 - Přehled ve správě má 10 dokumentů na stránku (jde zvolit 20 nebo 50) a řadí se kliknutím na záhlaví sloupce.
 - Migrace `0005` potřebuje rozšíření `unaccent` a zakládá konfiguraci hledání `cs_simple`.
@@ -154,7 +166,7 @@ Podrobnosti jsou v návrhu chatu.
   ukáže. Když nezbývá nic, nebo v posledním povoleném kroku, smyčka pošle `toolChoice: 'none'` a model musí odpovědět.
 
 - **Jedna otázka** (`src/server/chat/question.ts`). Jediné místo, které zná pořadí otázky: limity, rozhovor,
-  shrnutí, první hledání, chatovací model s nástroji, citace a záznam (stopa v `chat_traces`, volání
+  shrnutí, první hledání, chatovací model s nástroji, citace a zápis (záznam otázky v `chat_traces`, volání
   v `ai_usage`). Ptá se tam chat návštěvníka (`askArchive`) i testovací otázky (`answerQuestion`, bez limitů
   a bez zápisu). Hledání počítá jen smyčka s modelem (`searchBudget` v `answerer.ts`); hledání poslaná v jednom
   kroku jsou jedno. Testy v `question.test.ts` se ptají stejně jako aplikace, s náhradními modely, otázkami
@@ -205,15 +217,17 @@ startu serveru (`shared_preload_libraries`). Místní obraz je v `docker/postgre
 
 | Složka | Obsah |
 | --- | --- |
-| `src/archive` | Data: typy, parametry hledání a úložiště `store.ts`. |
+| `src/archive` | Data archivu: typy dokumentů a kategorií, parametry hledání a úložiště `store.ts`. |
+| `src/ai/types.ts`, `src/processing/types.ts`, `src/chat/types.ts` | Typy ostatních oblastí: volání modelů, skilly a náklady; běhy zpracování; chat. |
 | `src/library` | Veřejná knihovna: nástroje, filtry a tři způsoby zobrazení. |
 | `src/viewer` | Prohlížeč PDF a obrázků. |
 | `src/admin`, `src/routes/sprava*` | Správa archivu. |
-| `src/server` | Serverové funkce, přihlášení, úložiště souborů, náhledy, zpracování obsahu. |
+| `src/server` | Server: přihlášení, úložiště souborů, náhledy, zpracování obsahu. |
+| `src/server/*functions.ts` | Serverové funkce, které volá prohlížeč, po oblastech: `archive-functions.ts`, `processing-functions.ts`, `ai/functions.ts`, `chat/functions.ts`. Vstup kontroluje `input.ts`. Funkce jen pro správce je obalená `forAdmin` nebo `adminOrNull` (`session.ts`); `functions.test.ts` hlídá, že žádná nechybí. |
 | `src/server/ai` | Jediné místo, které zná dodavatele AI a modely. Záznam volání a jeho cena: `calls.ts`. |
 | `src/server/ai/skills` | Výchozí znění skillů, ve složce podle typu souboru (`pdf`, `image`, `shared`). |
 | `src/chat` | Panel chatu na hlavní stránce. |
-| `src/server/chat` | Chat na serveru: jedna otázka od začátku do konce (`question.ts`), kousky, embeddingy, hybridní hledání, smyčka s modelem, stopy. |
+| `src/server/chat` | Chat na serveru: jedna otázka od začátku do konce (`question.ts`), kousky, embeddingy, hybridní hledání, smyčka s modelem, záznamy otázek. |
 | `src/db` | Schéma databáze, migrace, ukázková data. |
 | `src/routes/soubor*`, `src/routes/api` | Vydávání a příjem souborů. |
 | `src/copy/cs.ts` | Všechny texty rozhraní. |

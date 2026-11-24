@@ -5,16 +5,21 @@ import type {
   ChatAnswer,
   ChatFeedbackFilter,
   ChatHit,
-  ChatSessionSummary,
+  ChatConversationSummary,
   ChatTrace,
   ChatTraceStep,
   ChatTraceSummary,
-} from '~/archive/types'
+} from '~/chat/types'
 import { Icon } from '~/components/Icon'
 import { cs, fill } from '~/copy/cs'
-import { askArchiveFn, getChatSessionFn, getChatSessionsFn, getChatTraceFn } from '~/server/archive'
+import {
+  askArchiveFn,
+  getChatConversationFn,
+  getChatConversationsFn,
+  getChatTraceFn,
+} from '~/server/chat/functions'
 
-/** The filters of the list as the address names them; the list of all sessions has no name. */
+/** The filters of the list as the address names them; the list of all conversations has no name. */
 const FILTER_NAMES: Readonly<Record<string, ChatFeedbackFilter>> = {
   's-hodnocenim': 'rated',
   kladne: 'helpful',
@@ -26,7 +31,7 @@ const FILTERS: readonly { filter: ChatFeedbackFilter; hodnoceni?: string }[] = [
 ]
 
 export const Route = createFileRoute('/sprava/chat')({
-  // `hodnoceni` lists only the sessions with that feedback, so a reload keeps the filter.
+  // `hodnoceni` lists only the conversations with that feedback, so a reload keeps the filter.
   validateSearch: (search: Record<string, unknown>): { hodnoceni?: string } =>
     typeof search.hodnoceni === 'string' && Object.hasOwn(FILTER_NAMES, search.hodnoceni)
       ? { hodnoceni: search.hodnoceni }
@@ -34,7 +39,7 @@ export const Route = createFileRoute('/sprava/chat')({
   loaderDeps: ({ search: { hodnoceni } }) => ({
     filter: (hodnoceni === undefined ? undefined : FILTER_NAMES[hodnoceni]) ?? 'all',
   }),
-  loader: ({ deps }) => getChatSessionsFn({ data: { filter: deps.filter } }),
+  loader: ({ deps }) => getChatConversationsFn({ data: { filter: deps.filter } }),
   component: ChatDebugger,
 })
 
@@ -470,7 +475,7 @@ function TraceDetail({ trace }: Readonly<{ trace: ChatTrace }>) {
           </ol>
         )}
       </div>
-      <ol className="session__calls">
+      <ol className="conversation__calls">
         {trace.steps.map((step, index) => (
           // Steps of a stored trace never change order.
           <Step key={index} step={step} />
@@ -524,7 +529,7 @@ function Trace({ summary, open }: Readonly<{ summary: ChatTraceSummary; open: bo
   }
 
   return (
-    <li className="session">
+    <li className="conversation">
       <details
         open={open ? true : undefined}
         ref={(element) => {
@@ -535,7 +540,7 @@ function Trace({ summary, open }: Readonly<{ summary: ChatTraceSummary; open: bo
         }}
       >
         <summary aria-label={`${cs.chatDebug.show}: ${summary.question}`}>
-          <strong className="session__title">{summary.question}</strong>
+          <strong className="conversation__title">{summary.question}</strong>
           <span>{dateTime.format(new Date(summary.at))}</span>
           <span>{fill(cs.chatDebug.searches, { count: summary.searches })}</span>
           <span>{took(summary.durationMs)}</span>
@@ -546,7 +551,7 @@ function Trace({ summary, open }: Readonly<{ summary: ChatTraceSummary; open: bo
               {cs.chatDebug.failed}
             </span>
           ) : null}
-          <span className="session__cost">{cost(summary.costUsd)}</span>
+          <span className="conversation__cost">{cost(summary.costUsd)}</span>
         </summary>
         {trace === undefined ? (
           <p className="field-hint">{cs.chatDebug.loading}</p>
@@ -562,14 +567,14 @@ function Trace({ summary, open }: Readonly<{ summary: ChatTraceSummary; open: bo
 
 /**
  * What the visitor said of an answer, as a label. With a count it stands at a
- * session and says how many of its answers got that word.
+ * conversation and says how many of its answers got that word.
  */
 function FeedbackLabel({ helpful, count }: Readonly<{ helpful: boolean; count?: number }>) {
   const label = helpful ? cs.chatDebug.feedbackHelpful : cs.chatDebug.feedbackUnhelpful
   const counted = helpful ? cs.chatDebug.feedbackHelpfulCount : cs.chatDebug.feedbackUnhelpfulCount
   return (
     <span
-      className={`status session__feedback session__feedback--${helpful ? 'helpful' : 'unhelpful'}`}
+      className={`status conversation__feedback conversation__feedback--${helpful ? 'helpful' : 'unhelpful'}`}
     >
       {count === undefined ? label : fill(counted, { count })}
     </span>
@@ -577,46 +582,46 @@ function FeedbackLabel({ helpful, count }: Readonly<{ helpful: boolean; count?: 
 }
 
 /** One conversation in the list; a click opens it. */
-function SessionRow({
-  session,
+function ConversationRow({
+  conversation,
   onOpen,
-}: Readonly<{ session: ChatSessionSummary; onOpen: (sessionId: string) => void }>) {
+}: Readonly<{ conversation: ChatConversationSummary; onOpen: (conversationId: string) => void }>) {
   return (
-    <li className="session">
+    <li className="conversation">
       <button
         type="button"
-        className="session__open"
-        aria-label={`${cs.chatDebug.openSession}: ${session.firstQuestion}`}
-        onClick={() => onOpen(session.sessionId)}
+        className="conversation__open"
+        aria-label={`${cs.chatDebug.openConversation}: ${conversation.firstQuestion}`}
+        onClick={() => onOpen(conversation.conversationId)}
       >
-        <strong className="session__title">{session.firstQuestion}</strong>
-        <span>{dateTime.format(new Date(session.lastAt))}</span>
-        <span>{fill(cs.chatDebug.questions, { count: session.questions })}</span>
-        <span>{took(session.durationMs)}</span>
-        {session.helpfulAnswers === 0 ? null : (
-          <FeedbackLabel helpful count={session.helpfulAnswers} />
+        <strong className="conversation__title">{conversation.firstQuestion}</strong>
+        <span>{dateTime.format(new Date(conversation.lastAt))}</span>
+        <span>{fill(cs.chatDebug.questions, { count: conversation.questions })}</span>
+        <span>{took(conversation.durationMs)}</span>
+        {conversation.helpfulAnswers === 0 ? null : (
+          <FeedbackLabel helpful count={conversation.helpfulAnswers} />
         )}
-        {session.unhelpfulAnswers === 0 ? null : (
-          <FeedbackLabel helpful={false} count={session.unhelpfulAnswers} />
+        {conversation.unhelpfulAnswers === 0 ? null : (
+          <FeedbackLabel helpful={false} count={conversation.unhelpfulAnswers} />
         )}
-        {session.failed ? (
+        {conversation.failed ? (
           <span className="status status--failed">
             <Icon name="alert" size={15} />
             {cs.chatDebug.failed}
           </span>
         ) : null}
-        <span className="session__cost">{cost(session.costUsd)}</span>
+        <span className="conversation__cost">{cost(conversation.costUsd)}</span>
       </button>
     </li>
   )
 }
 
-/** The session id, ready to be put where a question can continue the conversation. */
-function SessionId({ id }: Readonly<{ id: string }>) {
+/** The conversation id, ready to be put where a question can continue the conversation. */
+function ConversationId({ id }: Readonly<{ id: string }>) {
   const [copied, setCopied] = useState(false)
   return (
-    <p className="trace-session__id">
-      <span>{cs.chatDebug.sessionId}:</span>
+    <p className="trace-conversation__id">
+      <span>{cs.chatDebug.conversationId}:</span>
       <code>{id}</code>
       <button
         type="button"
@@ -635,41 +640,41 @@ function SessionId({ id }: Readonly<{ id: string }>) {
 }
 
 /** The conversation the administrator is looking at. */
-interface OpenSession {
+interface OpenConversation {
   id: string
-  /** `undefined` until read, `null` when the session could not be read. */
+  /** `undefined` until read, `null` when the conversation could not be read. */
   traces: ChatTraceSummary[] | null | undefined
 }
 
 function ChatDebugger() {
-  const sessions = Route.useLoaderData()
+  const conversations = Route.useLoaderData()
   const { filter } = Route.useLoaderDeps()
   const navigate = Route.useNavigate()
   const router = useRouter()
   const [question, setQuestion] = useState('')
   const [asking, setAsking] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
-  const [session, setSession] = useState<OpenSession | null>(null)
+  const [conversation, setConversation] = useState<OpenConversation | null>(null)
   /** The trace of the question just tried; it is shown open. */
   const [opened, setOpened] = useState<string | null>(null)
 
   // A visitor gets no records; the layout above already shows the sign-in form.
-  if (sessions === null) return null
+  if (conversations === null) return null
 
-  async function openSession(id: string) {
-    setSession({ id, traces: undefined })
-    // The administrator may have moved on while the session was being read.
-    const keep = (traces: OpenSession['traces']) =>
-      setSession((current) => (current?.id === id ? { id, traces } : current))
+  async function openConversation(id: string) {
+    setConversation({ id, traces: undefined })
+    // The administrator may have moved on while the conversation was being read.
+    const keep = (traces: OpenConversation['traces']) =>
+      setConversation((current) => (current?.id === id ? { id, traces } : current))
     try {
-      keep(await getChatSessionFn({ data: { sessionId: id } }))
+      keep(await getChatConversationFn({ data: { conversationId: id } }))
     } catch {
       keep(null)
     }
   }
 
-  function closeSession() {
-    setSession(null)
+  function closeConversation() {
+    setConversation(null)
     setOpened(null)
   }
 
@@ -681,22 +686,27 @@ function ChatDebugger() {
     setMessage(null)
     try {
       const updates = await askArchiveFn({
-        data: { question: asked, sessionId: session?.id, scope: 'archive', documentIds: [] },
+        data: {
+          question: asked,
+          conversationId: conversation?.id,
+          scope: 'archive',
+          documentIds: [],
+        },
       })
       // The debugger shows the trace afterwards, so it waits for the answer only.
       let answer: ChatAnswer = { ok: false, problem: 'failed' }
       for await (const update of updates) if (update.kind === 'answer') answer = update.answer
       if (answer.ok) {
         setOpened(answer.traceId)
-        await openSession(answer.sessionId)
+        await openConversation(answer.conversationId)
       } else {
         setMessage(
           answer.problem === 'failed'
             ? cs.chatDebug.tryFailed
             : fill(cs.chatDebug.tryRefused, { reason: cs.chat.problems[answer.problem] }),
         )
-        // A failed question is in the open session too; a new session is not known by id.
-        if (session !== null) await openSession(session.id)
+        // A failed question is in the open conversation too; a new conversation is not known by id.
+        if (conversation !== null) await openConversation(conversation.id)
       }
       setQuestion('')
       await router.invalidate()
@@ -732,28 +742,28 @@ function ChatDebugger() {
         >
           {asking ? cs.chatDebug.trying : cs.chatDebug.tryAction}
         </button>
-        {session === null ? null : (
-          <button type="button" className="button" onClick={closeSession} disabled={asking}>
+        {conversation === null ? null : (
+          <button type="button" className="button" onClick={closeConversation} disabled={asking}>
             {cs.chatDebug.newConversation}
           </button>
         )}
       </form>
-      {session === null ? null : <p className="field-hint">{cs.chatDebug.tryContinues}</p>}
+      {conversation === null ? null : <p className="field-hint">{cs.chatDebug.tryContinues}</p>}
       <p className="flash" role="status">
         {message}
       </p>
 
-      {session !== null ? (
-        <section className="trace-session" aria-labelledby="admin-session-title">
-          <h2 id="admin-session-title">{cs.chatDebug.sessionTitle}</h2>
-          <SessionId id={session.id} />
-          {session.traces === undefined ? (
+      {conversation !== null ? (
+        <section className="trace-conversation" aria-labelledby="admin-conversation-title">
+          <h2 id="admin-conversation-title">{cs.chatDebug.conversationTitle}</h2>
+          <ConversationId id={conversation.id} />
+          {conversation.traces === undefined ? (
             <p className="field-hint">{cs.chatDebug.loading}</p>
-          ) : session.traces === null || session.traces.length === 0 ? (
-            <p className="field-error">{cs.chatDebug.sessionMissing}</p>
+          ) : conversation.traces === null || conversation.traces.length === 0 ? (
+            <p className="field-error">{cs.chatDebug.conversationMissing}</p>
           ) : (
-            <ul className="sessions">
-              {session.traces.map((summary) => (
+            <ul className="conversations">
+              {conversation.traces.map((summary) => (
                 <Trace key={summary.id} summary={summary} open={summary.id === opened} />
               ))}
             </ul>
@@ -761,7 +771,11 @@ function ChatDebugger() {
         </section>
       ) : (
         <>
-          <div className="session-filter" role="group" aria-label={cs.chatDebug.feedbackFilter}>
+          <div
+            className="conversation-filter"
+            role="group"
+            aria-label={cs.chatDebug.feedbackFilter}
+          >
             <span aria-hidden="true">{cs.chatDebug.feedbackFilter}:</span>
             {FILTERS.map((choice) => (
               <button
@@ -775,17 +789,17 @@ function ChatDebugger() {
               </button>
             ))}
           </div>
-          {sessions.length === 0 ? (
+          {conversations.length === 0 ? (
             <p className="notice">
               {filter === 'all' ? cs.chatDebug.empty : cs.chatDebug.feedbackEmpty}
             </p>
           ) : (
-            <ul className="sessions">
-              {sessions.map((summary) => (
-                <SessionRow
-                  key={summary.sessionId}
-                  session={summary}
-                  onOpen={(id) => void openSession(id)}
+            <ul className="conversations">
+              {conversations.map((summary) => (
+                <ConversationRow
+                  key={summary.conversationId}
+                  conversation={summary}
+                  onOpen={(id) => void openConversation(id)}
                 />
               ))}
             </ul>

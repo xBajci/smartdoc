@@ -251,7 +251,7 @@ export async function resetWithDemo(
       issuedYearSource: demo.issuedYear === null ? null : (demo.yearSource ?? 'auto'),
       customDescription: demo.custom ?? '',
       shortDescription: demo.short ?? '',
-      autoDescription: (demo.pages ?? []).join('\n\n'),
+      extractedText: (demo.pages ?? []).join('\n\n'),
       status: demo.status ?? 'ready',
       hasText: published ? (demo.hasText ?? true) : null,
       errorReason: demo.errorReason ?? null,

@@ -5,7 +5,7 @@ import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto'
 import { resourceFromAttributes } from '@opentelemetry/resources'
 import { BatchSpanProcessor, TracerProvider } from '@opentelemetry/sdk-trace'
 import type { TelemetryOptions } from 'ai'
-import type { ChatPassage } from '../../archive/types'
+import type { ChatPassage } from '../../chat/types'
 
 /**
  * The one place that knows MLflow. Every question to the chat becomes one
@@ -100,7 +100,7 @@ export interface TracedQuestion {
   question: string
   /** The id of the question in `chat_traces`, so a trace in MLflow leads back to it. */
   questionId: string
-  sessionId: string
+  conversationId: string
   /** More tags for the trace, such as the number of a test question. */
   tags?: Record<string, string>
 }
@@ -124,7 +124,7 @@ export async function traceQuestion<Answer extends { text: string }>(
       'mlflow.spanType': 'CHAIN',
       'mlflow.spanInputs': JSON.stringify({ question: question.question }),
       // MLflow groups traces into sessions by this one and keeps the tag on the trace.
-      'session.id': question.sessionId,
+      'session.id': question.conversationId,
       'mlflow.traceTag.question_id': question.questionId,
       ...Object.fromEntries(
         Object.entries(question.tags ?? {}).map(([key, value]) => [

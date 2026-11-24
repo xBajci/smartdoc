@@ -49,18 +49,18 @@ Feature: Chat nad archivem
     Then odpověď je "V archivu jsem k tomu nic nenašel."
     And pod odpovědí nejsou žádné zdroje
 
-  Scenario: Navazující otázka použije předchozí konverzaci
+  Scenario: Navazující otázka použije předchozí rozhovor
     Given návštěvník se zeptal "Kdo vymění veřejné osvětlení?"
     When se zeptá "Kolik?"
     Then druhá odpověď obsahuje "870 000 Kč" ze stejného dokumentu
 
-  Scenario: „Nový chat“ začne konverzaci od začátku
+  Scenario: „Nový chat“ začne rozhovor od začátku
     Given chat bez položené otázky tlačítko "Nový chat" neukazuje
     And návštěvník se zeptal "Kdo vymění veřejné osvětlení?"
     When zvolí "Nový chat"
     Then chat je prázdný, nabízí ukázkové otázky a pole otázky má kurzor
     When se zeptá "Kolik?"
-    Then odpověď na předchozí konverzaci nenavazuje
+    Then odpověď na předchozí rozhovor nenavazuje
 
   Scenario: Hodnocení je pod každou odpovědí, pod hlášením chyby není
     When odpověď na otázku selže

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ChatTraceStep } from '../../archive/types'
+import type { ChatTraceStep } from '../../chat/types'
 import { callsOfSteps, type CallsContext } from './question-calls'
 
 const CONTEXT: CallsContext = {
@@ -114,7 +114,7 @@ describe('the calls of a chat question, as the records of AI calls keep them', (
   it('are one for each model step and up to three for a search, in the order they were made', () => {
     const calls = callsOfSteps(STEPS, CONTEXT)
     expect(
-      calls.map((call) => [call.operation, call.skillKey, call.model, call.input, call.output]),
+      calls.map((call) => [call.operation, call.use, call.model, call.input, call.output]),
     ).toEqual([
       ['summary-chat', 'chat-summary', 'fake:summary', 'Otázek: 4', 'Shrnutí.'],
       ['rewrite', 'chat-rewrite', 'fake:rewrite', 'Kolik obec dá celkem?', 'osvětlení | dotace'],
