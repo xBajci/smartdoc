@@ -11,8 +11,8 @@ import type {
 } from '../../archive/types'
 import { getDatabase } from '../../db/client'
 import { documentChunks, documents } from '../../db/schema'
+import { reasonOf, spent, unspent } from '../ai/calls'
 import { modelName } from '../ai/models'
-import { costOfCall } from '../ai/prices'
 import { branchWeights, orderByScore, type Decider } from './decisions'
 import type { Embedder } from './embedder'
 import { fuseRanks } from './fusion'
@@ -108,8 +108,6 @@ export interface SearchTools {
   onRerank?: () => void
 }
 
-const message = (caught: unknown) => (caught instanceof Error ? caught.message : String(caught))
-
 /** Asks how much each branch should count. A failure costs nothing: the branches stay equal. */
 async function weighBranches(
   question: string,
@@ -125,25 +123,22 @@ async function weighBranches(
       ...kind,
       ...branchWeights(kind, settings.weightSpread),
       durationMs: Date.now() - started,
-      inputTokens,
-      outputTokens,
-      costUsd: costOfCall(model, inputTokens, outputTokens),
+      ...spent(model, { inputTokens, outputTokens }),
       error: null,
     }
   } catch (caught) {
     console.error('The branches of the chat search were not weighed:', caught)
+    const model = modelName('decision')
     return {
-      model: modelName('decision'),
+      model,
       exact: 0,
       both: 0,
       paraphrase: 0,
       words: 1,
       meaning: 1,
       durationMs: Date.now() - started,
-      inputTokens: 0,
-      outputTokens: 0,
-      costUsd: null,
-      error: message(caught),
+      ...unspent(model),
+      error: reasonOf(caught),
     }
   }
 }
@@ -237,9 +232,7 @@ export async function hybridSearch(
       rerank = {
         model,
         durationMs: Date.now() - rerankStarted,
-        inputTokens,
-        outputTokens,
-        costUsd: costOfCall(model, inputTokens, outputTokens),
+        ...spent(model, { inputTokens, outputTokens }),
         candidates: order.flatMap((index) => {
           const candidate = candidates[index]
           if (candidate === undefined) return []
@@ -261,14 +254,13 @@ export async function hybridSearch(
     } catch (caught) {
       // The search still answers, in the order of the fusion.
       console.error('The pieces of the chat search were not reranked:', caught)
+      const model = modelName('decision')
       rerank = {
-        model: modelName('decision'),
+        model,
         durationMs: Date.now() - rerankStarted,
-        inputTokens: 0,
-        outputTokens: 0,
-        costUsd: null,
+        ...unspent(model),
         candidates: [],
-        error: message(caught),
+        error: reasonOf(caught),
       }
     }
   }

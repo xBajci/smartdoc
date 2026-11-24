@@ -4,7 +4,8 @@ import { calendarDay } from '../archive/query'
 import type { ProcessingStep } from '../archive/types'
 import { cs, fill } from '../copy/cs'
 import { getDatabase } from '../db/client'
-import { aiUsage, categories, documents, processingRuns, type DocumentRow } from '../db/schema'
+import { categories, documents, processingRuns, type DocumentRow } from '../db/schema'
+import { recorded, storeCalls, type ModelCall, type RecordCall } from './ai/calls'
 import {
   categoryCriteria,
   getCategorizer,
@@ -12,8 +13,7 @@ import {
   type CategoryChoice,
 } from './ai/categorizer'
 import { missingKey, modelName } from './ai/models'
-import { costOfCall } from './ai/prices'
-import { getReader, type DocumentReader, type ModelCall, type Summary } from './ai/reader'
+import { getReader, type DocumentReader, type Summary } from './ai/reader'
 import { instructionsFor, type LoadedSkill } from './ai/skills'
 import type { PageText } from './chat/chunks'
 import { getEmbedder } from './chat/embedder'
@@ -199,17 +199,15 @@ async function readImage(
 async function categorize(
   document: CategorizedDocument,
   available: readonly CategoryChoice[],
-  record: (call: ModelCall) => void,
+  record: RecordCall,
   skills: readonly LoadedSkill[],
 ): Promise<string | null> {
   const categorizer = getCategorizer()
   if (categorizer === null || available.length === 0) return null
   const guidance = instructionsFor(skills, 'categorize')
-  const started = Date.now()
-  const call = {
+  const head = {
     operation: 'categorize' as const,
     skillKey: 'categorize',
-    skillVersion: 0,
     skills: guidance.skills,
     page: null,
     // The record shows what the model decided from: the document and the wording of each category.
@@ -227,32 +225,21 @@ async function categorize(
     ].join('\n'),
   }
   try {
-    const { category, probabilities, model, inputTokens, outputTokens } = await categorizer(
-      document,
-      available,
-      guidance.text,
-    )
-    record({
-      ...call,
-      model,
-      output: JSON.stringify({ category, probabilities }, null, 2),
-      error: null,
-      durationMs: Date.now() - started,
-      inputTokens,
-      outputTokens,
+    return await recorded(record, modelName('decision'), head, async () => {
+      const { category, probabilities, model, ...usage } = await categorizer(
+        document,
+        available,
+        guidance.text,
+      )
+      return {
+        value: category,
+        output: JSON.stringify({ category, probabilities }, null, 2),
+        usage,
+        model,
+      }
     })
-    return category
   } catch (error) {
     console.error('The category of a document was not determined:', error)
-    record({
-      ...call,
-      model: modelName('decision'),
-      output: '',
-      error: error instanceof Error ? error.message : String(error),
-      durationMs: Date.now() - started,
-      inputTokens: 0,
-      outputTokens: 0,
-    })
     return null
   }
 }
@@ -362,7 +349,6 @@ export async function processDocument(id: string): Promise<void> {
     }
 
     // Pieces for the chat, under the name the document ends up with.
-    const embedStarted = Date.now()
     const chunks = await prepareChunks(
       { id, title: renamed ? title : current.title },
       extracted.pages,
@@ -374,21 +360,7 @@ export async function processDocument(id: string): Promise<void> {
         ? cs.trace.chunksNone
         : fill(cs.trace.chunksDetail, { count: chunks.rows.length, model: chunks.model }),
     )
-    if (chunks.model !== null) {
-      trace.call({
-        operation: 'embed',
-        model: chunks.model,
-        skillKey: null,
-        skillVersion: 0,
-        page: null,
-        input: `Kousků textu: ${chunks.rows.length}`,
-        output: '',
-        error: null,
-        durationMs: Date.now() - embedStarted,
-        inputTokens: chunks.tokens,
-        outputTokens: 0,
-      })
-    }
+    if (chunks.call !== null) trace.call(chunks.call)
 
     // The document and its pieces change together, so the chat never reads half of each.
     await database.transaction(async (transaction) => {
@@ -515,16 +487,13 @@ async function recordCalls(row: DocumentRow, calls: readonly ModelCall[], runId:
     .select({ title: documents.title })
     .from(documents)
     .where(eq(documents.id, row.id))
-  await getDatabase()
-    .insert(aiUsage)
-    .values(
-      calls.map((call) => ({
-        runId,
-        documentId: current === undefined ? null : row.id,
-        documentTitle: current?.title ?? row.title,
-        format: row.format,
-        ...call,
-        costUsd: costOfCall(call.model, call.inputTokens, call.outputTokens),
-      })),
-    )
+  await storeCalls(
+    {
+      runId,
+      documentId: current === undefined ? null : row.id,
+      title: current?.title ?? row.title,
+      format: row.format,
+    },
+    calls,
+  )
 }

@@ -1,16 +1,12 @@
 import { readFileSync } from 'node:fs'
 import { eq } from 'drizzle-orm'
-import type { ChatHit, ChatTraceStep } from '../../archive/types'
+import type { ChatHit } from '../../archive/types'
 import { closeDatabase, getDatabase } from '../../db/client'
 import { documents } from '../../db/schema'
-import { instructionsFor } from '../ai/skills'
-import { loadSkills } from '../skills-service'
-import { getAnswerer } from './answerer'
 import { getEmbedder } from './embedder'
 import { fuseRanks } from './fusion'
-import { chatFixed, rewriteFixed } from './instructions'
-import { hybridSearch, searchByMeaning, searchByWords } from './retrieval'
-import { getRewriter } from './rewriter'
+import { answerQuestion } from './question'
+import { searchByMeaning, searchByWords } from './retrieval'
 import { parseSearchQuestions, ranksOfDocuments, type SearchQuestion } from './search-questions'
 import { chatSettings } from './settings'
 
@@ -24,6 +20,9 @@ import { chatSettings } from './settings'
 // the same instructions and skills: the rewrite model the first search, the chat
 // model the ones after it. A document then counts at the best
 // place any of its searches gave it. It costs a little and varies between runs.
+// It measures the search and sends nothing to MLflow, whatever `.env` sets up; `pnpm eval:run` does.
+delete process.env.MLFLOW_TRACKING_URI
+
 const QUESTIONS_FILE = 'docs/tests/search-questions.md'
 const BRANCHES = ['slova', 'význam', 'spojení'] as const
 type Branch = (typeof BRANCHES)[number]
@@ -90,45 +89,20 @@ async function asWritten(question: SearchQuestion, ids: string[]) {
   return { queries: [question.question], ranks: ranksOf(words, meaning, ids), costUsd: 0 }
 }
 
-const skills = await loadSkills()
-const rewriteInstructions = instructionsFor(skills, 'chat-rewrite', rewriteFixed())
-const answerInstructions = instructionsFor(skills, 'chat-answer', chatFixed())
-
+/** The searches the chat makes for the question when it answers it, without the decision model. */
 async function asTheModelWrites(question: SearchQuestion, ids: string[]) {
-  const numbers = new Map<number, number>()
-  const numberOf = (chunkId: number) =>
-    numbers.get(chunkId) ?? numbers.set(chunkId, numbers.size + 1).size
-  const tools = { embed, decider: null, rerankGuidance: '', settings, numberOf }
-  const search = (query: string) => hybridSearch(question.question, query, scope, tools)
-  const rewrite = await getRewriter()({
-    question: question.question,
-    history: [],
-    instructions: rewriteInstructions.text,
-  })
-  const found = await Promise.all(rewrite.queries.map(search))
-  const steps: ChatTraceStep[] = [rewrite, ...found]
-  await getAnswerer()({
-    question: question.question,
-    instructions: answerInstructions.text,
-    history: [],
-    settings,
-    found,
-    search,
-    trace: (step) => steps.push(step),
-  })
-  const searches = steps.flatMap((step) => (step.kind === 'search' ? [step] : []))
-  const costUsd = steps.reduce(
-    (sum, step) =>
-      sum + (step.kind === 'model' || step.kind === 'rewrite' ? (step.costUsd ?? 0) : 0),
-    0,
-  )
+  const answered = await answerQuestion(question.question, { decisions: false })
+  if (answered.error !== null) {
+    console.error(`Otázka ${question.number} nedostala odpověď: ${answered.error}`)
+  }
+  const searches = answered.steps.flatMap((step) => (step.kind === 'search' ? [step] : []))
   return {
     queries: searches.map((step) => step.query),
     ranks: bestOf(
       searches.map((step) => ranksOf(step.words, step.meaning, ids)),
       ids.length,
     ),
-    costUsd,
+    costUsd: answered.costUsd ?? 0,
   }
 }
 
@@ -166,7 +140,7 @@ for (const branch of BRANCHES) {
 }
 if (byModel) {
   const cost = results.reduce((sum, result) => sum + result.costUsd, 0)
-  console.log(`Cena volání chatovacího modelu: ${cost.toFixed(3)} USD`)
+  console.log(`Cena všech volání modelů: ${cost.toFixed(3)} USD`)
 }
 const unanswerable = questions.filter((question) => question.documents.length === 0)
 if (unanswerable.length > 0) {

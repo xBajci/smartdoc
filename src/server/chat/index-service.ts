@@ -1,6 +1,8 @@
 import { eq } from 'drizzle-orm'
+import type { ModelCall } from '../../archive/types'
 import type { Database } from '../../db/client'
 import { documentChunks } from '../../db/schema'
+import { spent } from '../ai/calls'
 import { chunkPages, type PageText } from './chunks'
 import type { Embedder } from './embedder'
 import { chatSettings } from './settings'
@@ -9,9 +11,10 @@ export type ChunkRow = typeof documentChunks.$inferInsert
 
 export interface PreparedChunks {
   rows: ChunkRow[]
-  /** Tokens the embedding used and the model that made it; for the record of the call. */
-  tokens: number
+  /** The model that made the embeddings; `null` when the document has no text and nothing was embedded. */
   model: string | null
+  /** The embedding as a call to a model, for the records; `null` when nothing was embedded. */
+  call: ModelCall | null
 }
 
 /**
@@ -25,13 +28,26 @@ export async function prepareChunks(
 ): Promise<PreparedChunks> {
   const { chunkCharacters, chunkOverlap } = chatSettings()
   const chunks = chunkPages(pages, chunkCharacters, chunkOverlap)
-  if (chunks.length === 0) return { rows: [], tokens: 0, model: null }
+  if (chunks.length === 0) return { rows: [], model: null, call: null }
   // The name goes in front: a piece from the middle of a document does not say what it is from.
   const indexed = chunks.map((chunk) => `${document.title}\n${chunk.text}`)
+  const started = Date.now()
   const { vectors, tokens, model } = await embed(indexed)
   return {
-    tokens,
     model,
+    call: {
+      operation: 'embed',
+      model,
+      skillKey: null,
+      skills: null,
+      page: null,
+      input: `Kousků textu: ${chunks.length}`,
+      output: '',
+      error: null,
+      durationMs: Date.now() - started,
+      // An embedding has no output tokens.
+      ...spent(model, { inputTokens: tokens, outputTokens: 0 }),
+    },
     rows: chunks.map((chunk, position) => ({
       documentId: document.id,
       page: chunk.page,

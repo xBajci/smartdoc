@@ -50,6 +50,8 @@ let results: string[]
 /** The messages the answer gave back for the next question. */
 let kept: { role: string }[]
 let steps: ChatTraceStep[]
+/** For every search the model ran: whether it was told to be the last one. */
+let lastSearches: boolean[]
 
 async function answer(replies: Reply[], limits: Partial<ReturnType<typeof chatSettings>> = {}) {
   scripted.model = new MockLanguageModelV4({
@@ -101,7 +103,10 @@ async function answer(replies: Reply[], limits: Partial<ReturnType<typeof chatSe
       ...limits,
     },
     found: [found('osvětlení dotace spolkům')],
-    search: async (query) => found(query),
+    search: async (query, last) => {
+      lastSearches.push(last)
+      return found(query)
+    },
     trace: (step) => steps.push(step),
   })
   kept = answered.messages
@@ -141,6 +146,7 @@ describe('the chat model and its calculations', () => {
     results = []
     kept = []
     steps = []
+    lastSearches = []
     usage = { ...usage, inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 } }
     delete process.env.AI_PRICES
   })
@@ -224,6 +230,16 @@ describe('the chat model and its calculations', () => {
     expect(steps.filter((step) => step.kind === 'search')).toHaveLength(0)
     const model = steps.find((step) => step.kind === 'model' && step.step === 1)
     expect(model).toMatchObject({ searches: [], refusedSearches: ['rozpočet 2025'] })
+  })
+
+  it('counts the searches of one step as one, and says which search is the last', async () => {
+    // The first search was one; two searches sent at once are the second, so a third may follow.
+    await answer(
+      [[search('rozpočet 2025'), search('rozpočet 2024')], [search('závěrečný účet')], 'Hotovo.'],
+      { maxSearches: 3 },
+    )
+    expect(lastSearches).toEqual([false, false, true])
+    expect(steps.filter((step) => step.kind === 'search')).toHaveLength(3)
   })
 
   it('makes the model answer in the last step, however many calls it wasted', async () => {

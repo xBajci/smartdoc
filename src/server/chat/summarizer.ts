@@ -1,7 +1,7 @@
 import { generateText } from 'ai'
 import type { ChatTraceStep, ChatTurn } from '../../archive/types'
+import { FAKE_USAGE, reasonOf, spent, unspent } from '../ai/calls'
 import { languageModel, modelName, modelSetting } from '../ai/models'
-import { costOfCall } from '../ai/prices'
 import { chatTelemetry } from './mlflow'
 
 export type SummaryStep = Extract<ChatTraceStep, { kind: 'summary' }>
@@ -39,12 +39,6 @@ const aiSummarizer: Summarizer = async ({ turns, questions, instructions }) => {
       messages: [{ role: 'user', content: conversationText(turns) }],
     })
     if (text.trim() === '') throw new Error('The summary model gave an empty text.')
-    const inputTokens = usage.inputTokens ?? 0
-    const outputTokens = usage.outputTokens ?? 0
-    const cached = {
-      read: usage.inputTokenDetails.cacheReadTokens ?? 0,
-      written: usage.inputTokenDetails.cacheWriteTokens ?? 0,
-    }
     return {
       kind: 'summary',
       model,
@@ -52,10 +46,7 @@ const aiSummarizer: Summarizer = async ({ turns, questions, instructions }) => {
       questions,
       error: null,
       durationMs: Date.now() - started,
-      inputTokens,
-      cachedInputTokens: cached.read,
-      outputTokens,
-      costUsd: costOfCall(model, inputTokens, outputTokens, cached),
+      ...spent(model, usage),
     }
   } catch (caught) {
     return {
@@ -63,17 +54,12 @@ const aiSummarizer: Summarizer = async ({ turns, questions, instructions }) => {
       model,
       text: '',
       questions,
-      error: caught instanceof Error ? caught.message : String(caught),
+      error: reasonOf(caught),
       durationMs: Date.now() - started,
-      inputTokens: 0,
-      outputTokens: 0,
-      costUsd: null,
+      ...unspent(model),
     }
   }
 }
-
-/** Tokens the fake model reports, so costs in tests are fixed. */
-const FAKE_USAGE = { inputTokens: 1000, outputTokens: 100 }
 
 /** A stand-in for the test suite (`AI_SUMMARY_MODEL=fake:summary`): it lists the questions. */
 const fakeSummarizer: Summarizer = ({ turns, questions }) => {
@@ -86,8 +72,7 @@ const fakeSummarizer: Summarizer = ({ turns, questions }) => {
     questions,
     error: null,
     durationMs: 1,
-    ...FAKE_USAGE,
-    costUsd: costOfCall(model, FAKE_USAGE.inputTokens, FAKE_USAGE.outputTokens),
+    ...spent(model, FAKE_USAGE),
   })
 }
 
