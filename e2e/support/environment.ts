@@ -31,8 +31,8 @@ export function serverEnvironment(port: number): Record<string, string> {
     SESSION_SECRET: 'e2e-only-session-secret-not-used-anywhere-else',
     ADMIN_PASSWORD_HASH: hashPassword(TEST_PASSWORD),
     SKILLS_API_TOKEN,
-    // Local storage even if the developer's shell carries a blob token.
-    BLOB_READ_WRITE_TOKEN: '',
+    // Local storage even if the developer's shell names an S3 bucket.
+    S3_BUCKET: '',
     // Fixed answers instead of a real model: tests cost nothing and repeat exactly.
     AI_OCR_MODEL: 'fake:test',
     AI_DESCRIPTION_MODEL: 'fake:description',

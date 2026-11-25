@@ -14,7 +14,6 @@ import { Route as PrihlaseniRouteImport } from './routes/prihlaseni'
 import { Route as RssDotxmlRouteImport } from './routes/rss[.]xml'
 import { Route as SpravaRouteImport } from './routes/sprava'
 import { Route as ApiSkillsRouteImport } from './routes/api/skills'
-import { Route as ApiUploadBlobRouteImport } from './routes/api/upload-blob'
 import { Route as ApiVerzeRouteImport } from './routes/api/verze'
 import { Route as SouborIdRouteImport } from './routes/soubor.$id'
 import { Route as SpravaIndexRouteImport } from './routes/sprava.index'
@@ -48,11 +47,6 @@ const SpravaRoute = SpravaRouteImport.update({
 const ApiSkillsRoute = ApiSkillsRouteImport.update({
   id: '/api/skills',
   path: '/api/skills',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiUploadBlobRoute = ApiUploadBlobRouteImport.update({
-  id: '/api/upload-blob',
-  path: '/api/upload-blob',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiVerzeRoute = ApiVerzeRouteImport.update({
@@ -107,7 +101,6 @@ export interface FileRoutesByFullPath {
   '/rss.xml': typeof RssDotxmlRoute
   '/sprava': typeof SpravaRouteWithChildren
   '/api/skills': typeof ApiSkillsRoute
-  '/api/upload-blob': typeof ApiUploadBlobRoute
   '/api/verze': typeof ApiVerzeRoute
   '/soubor/$id': typeof SouborIdRoute
   '/sprava/chat': typeof SpravaChatRoute
@@ -123,7 +116,6 @@ export interface FileRoutesByTo {
   '/prihlaseni': typeof PrihlaseniRoute
   '/rss.xml': typeof RssDotxmlRoute
   '/api/skills': typeof ApiSkillsRoute
-  '/api/upload-blob': typeof ApiUploadBlobRoute
   '/api/verze': typeof ApiVerzeRoute
   '/soubor/$id': typeof SouborIdRoute
   '/sprava/chat': typeof SpravaChatRoute
@@ -141,7 +133,6 @@ export interface FileRoutesById {
   '/rss.xml': typeof RssDotxmlRoute
   '/sprava': typeof SpravaRouteWithChildren
   '/api/skills': typeof ApiSkillsRoute
-  '/api/upload-blob': typeof ApiUploadBlobRoute
   '/api/verze': typeof ApiVerzeRoute
   '/soubor/$id': typeof SouborIdRoute
   '/sprava/chat': typeof SpravaChatRoute
@@ -160,7 +151,6 @@ export interface FileRouteTypes {
     | '/rss.xml'
     | '/sprava'
     | '/api/skills'
-    | '/api/upload-blob'
     | '/api/verze'
     | '/soubor/$id'
     | '/sprava/chat'
@@ -176,7 +166,6 @@ export interface FileRouteTypes {
     | '/prihlaseni'
     | '/rss.xml'
     | '/api/skills'
-    | '/api/upload-blob'
     | '/api/verze'
     | '/soubor/$id'
     | '/sprava/chat'
@@ -193,7 +182,6 @@ export interface FileRouteTypes {
     | '/rss.xml'
     | '/sprava'
     | '/api/skills'
-    | '/api/upload-blob'
     | '/api/verze'
     | '/soubor/$id'
     | '/sprava/chat'
@@ -211,7 +199,6 @@ export interface RootRouteChildren {
   RssDotxmlRoute: typeof RssDotxmlRoute
   SpravaRoute: typeof SpravaRouteWithChildren
   ApiSkillsRoute: typeof ApiSkillsRoute
-  ApiUploadBlobRoute: typeof ApiUploadBlobRoute
   ApiVerzeRoute: typeof ApiVerzeRoute
   SouborIdRoute: typeof SouborIdRoute
   ApiUploadIdRoute: typeof ApiUploadIdRoute
@@ -253,13 +240,6 @@ declare module '@tanstack/react-router' {
       path: '/api/skills'
       fullPath: '/api/skills'
       preLoaderRoute: typeof ApiSkillsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/upload-blob': {
-      id: '/api/upload-blob'
-      path: '/api/upload-blob'
-      fullPath: '/api/upload-blob'
-      preLoaderRoute: typeof ApiUploadBlobRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/verze': {
@@ -353,7 +333,6 @@ const rootRouteChildren: RootRouteChildren = {
   RssDotxmlRoute: RssDotxmlRoute,
   SpravaRoute: SpravaRouteWithChildren,
   ApiSkillsRoute: ApiSkillsRoute,
-  ApiUploadBlobRoute: ApiUploadBlobRoute,
   ApiVerzeRoute: ApiVerzeRoute,
   SouborIdRoute: SouborIdRoute,
   ApiUploadIdRoute: ApiUploadIdRoute,

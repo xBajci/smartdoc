@@ -10,7 +10,7 @@ import { storeCalls } from '../ai/calls'
 import type { PageText } from '../chat/chunks'
 import { getEmbedder } from '../chat/embedder'
 import { prepareChunks, writeChunks } from '../chat/index-service'
-import { getStorage, localOriginalKey } from '../storage'
+import { getStorage, originalKey } from '../storage'
 import { makeThumbnail } from '../thumbnail'
 import type { PreparedDocument, ReadDocument } from './work'
 
@@ -160,7 +160,7 @@ for (const id of ids) {
 
   const documentId = randomUUID()
   const original = readFileSync(prepared.source)
-  const storageKey = await storage.write(localOriginalKey(documentId), original, prepared.mimeType)
+  const storageKey = await storage.write(originalKey(documentId), original, prepared.mimeType)
   let thumbnailKey: string | null = null
   if (prepared.format === 'image') {
     const thumbnail = await makeThumbnail(original)

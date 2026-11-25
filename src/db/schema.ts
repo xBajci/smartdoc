@@ -52,7 +52,7 @@ export const documents = pgTable(
     sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
     /** Content fingerprint; the unique index is what refuses a duplicate upload. */
     sha256: text('sha256').notNull().unique(),
-    /** Where the original lives in file storage — a path on disk or a blob address. */
+    /** Where the original lives in file storage: a relative path, in a folder or in an S3 bucket. */
     storageKey: text('storage_key').notNull(),
     /** Small WebP copy of an image, shown in lists; `null` for a PDF or when it could not be made. */
     thumbnailKey: text('thumbnail_key'),

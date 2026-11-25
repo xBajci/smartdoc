@@ -10,11 +10,10 @@ import type {
   DocumentStatus,
 } from '~/archive/types'
 import * as service from './archive-service'
-import { storageMode } from './config'
 import { HEX_COLOR, matching, SHA256, text, UUID } from './input'
 import { searchDocuments } from './search-service'
 import { adminOrNull, forAdmin, isAdmin, signIn, signOut, type SignInResult } from './session'
-import { localOriginalKey } from './storage'
+import { originalKey } from './storage'
 
 /**
  * What the browser calls on the server for the archive: its documents and
@@ -31,7 +30,6 @@ export const getArchiveFn = createServerFn({ method: 'GET' }).handler(
     return {
       categories: await service.listCategories(admin),
       isAdmin: admin,
-      storageMode: storageMode(),
     }
   },
 )
@@ -94,8 +92,6 @@ export const prepareUploadFn = createServerFn({ method: 'POST' })
 
 interface CreateDocumentInput {
   id: string
-  /** Address returned by blob storage; ignored for a local upload, whose place follows from the id. */
-  blobUrl: string | null
   originalFilename: string
   categoryId: string
   customDescription: string
@@ -105,27 +101,16 @@ interface CreateDocumentInput {
 export const createDocumentFn = createServerFn({ method: 'POST' })
   .validator((data: CreateDocumentInput) => ({
     id: matching(data.id, UUID),
-    blobUrl: data.blobUrl === null ? null : text(data.blobUrl, 2000),
     originalFilename: text(data.originalFilename, 255),
     categoryId: text(data.categoryId, 200),
     customDescription: text(data.customDescription, 5000),
     sha256: matching(data.sha256, SHA256),
   }))
   .handler(
-    forAdmin(({ data }) => {
-      let storageKey = localOriginalKey(data.id)
-      if (storageMode() === 'blob') {
-        // The address must be the one this very upload was allowed to write to.
-        if (
-          data.blobUrl === null ||
-          !new URL(data.blobUrl).pathname.startsWith(`/documents/${data.id}/`)
-        ) {
-          throw new Error('Invalid input.')
-        }
-        storageKey = data.blobUrl
-      }
-      return service.createDocument({ ...data, storageKey })
-    }),
+    forAdmin(({ data }) =>
+      // The upload was written under the id, so the id alone says where the file lies.
+      service.createDocument({ ...data, storageKey: originalKey(data.id) }),
+    ),
   )
 
 export const updateDocumentFn = createServerFn({ method: 'POST' })

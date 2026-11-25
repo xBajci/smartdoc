@@ -16,7 +16,7 @@ Obrázek dostane zmenšený náhled. Chat odpovídá z dokumentů a uvádí zdro
 ```bash
 cp .env.example .env          # doplň SESSION_SECRET a ADMIN_PASSWORD_HASH
 pnpm install
-pnpm db:up                    # Postgres v Dockeru na portu 5434 (poprvé se sestaví obraz)
+pnpm db:up                    # Postgres (port 5434) a MinIO (port 9100) v Dockeru; poprvé se sestaví obraz
 pnpm db:migrate
 pnpm db:seed                  # nepovinné: ukázkové dokumenty (smaže stávající obsah)
 pnpm dev
@@ -42,11 +42,15 @@ Heslo správce: `pnpm admin:password <heslo>` vypíše řádek pro `.env`.
 
 | Kdy | Kam jdou soubory |
 | --- | --- |
-| `BLOB_READ_WRITE_TOKEN` je prázdný | Složka `STORAGE_DIR` (výchozí `.data/storage`). Vývoj a testy. |
-| `BLOB_READ_WRITE_TOKEN` je vyplněný | Vercel Blob se soukromým přístupem. Prohlížeč posílá soubor přímo tam. |
+| `S3_BUCKET` je prázdný | Složka `STORAGE_DIR` (výchozí `.data/storage`). Vývoj a testy. |
+| `S3_BUCKET` je vyplněný | Soukromý bucket v úložišti s rozhraním S3. V produkci vlastní MinIO (`https://s3.bajcar.cz`, bucket `smartdoc`). |
 
-Soubory se vždy čtou přes aplikaci (`/soubor/<id>`, náhled `/soubor/<id>/nahled`).
-Nezveřejněný dokument tak návštěvník neotevře.
+Soubory se vždy zapisují i čtou přes aplikaci (zápis `/api/upload/<id>`, čtení `/soubor/<id>`,
+náhled `/soubor/<id>/nahled`). Nezveřejněný dokument tak návštěvník neotevře.
+V obou úložištích leží originál pod klíčem `documents/<id>` a náhled pod `thumbnails/<id>.webp`.
+
+`src/server/storage.test.ts` ověřuje obě úložiště stejnými testy. Část pro S3 běží jen s místním
+MinIO z `docker-compose.yml` (`pnpm db:up`), jinak se přeskočí.
 
 ## Zpracování obsahu
 

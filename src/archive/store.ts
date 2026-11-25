@@ -1,4 +1,3 @@
-import { upload } from '@vercel/blob/client'
 import { useSyncExternalStore } from 'react'
 import {
   addCategoryFn,
@@ -34,7 +33,6 @@ import type { UploadProblem } from './upload'
 let state: ArchiveSnapshot = {
   categories: [],
   isAdmin: false,
-  storageMode: 'local',
   revision: 0,
 }
 const listeners = new Set<() => void>()
@@ -104,25 +102,13 @@ async function uploadDocument(
     return { ok: false, problem: 'duplicate', duplicateId: prepared.duplicateId }
   }
 
-  let blobUrl: string | null = null
-  if (state.storageMode === 'blob') {
-    const blob = await upload(`documents/${prepared.id}/${input.file.name}`, input.file, {
-      access: 'private',
-      handleUploadUrl: '/api/upload-blob',
-      multipart: input.file.size > 8 * 1024 * 1024,
-      onUploadProgress: (event) => onProgress(event.percentage / 100),
-    })
-    blobUrl = blob.url
-  } else {
-    const status = await putFile(`/api/upload/${prepared.id}`, input.file, onProgress)
-    if (status === 413) return { ok: false, problem: 'too-large' }
-    if (status < 200 || status >= 300) return { ok: false, problem: 'failed' }
-  }
+  const status = await putFile(`/api/upload/${prepared.id}`, input.file, onProgress)
+  if (status === 413) return { ok: false, problem: 'too-large' }
+  if (status < 200 || status >= 300) return { ok: false, problem: 'failed' }
 
   const created = await createDocumentFn({
     data: {
       id: prepared.id,
-      blobUrl,
       originalFilename: input.file.name,
       categoryId: input.categoryId,
       customDescription: input.customDescription,
