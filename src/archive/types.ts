@@ -158,8 +158,6 @@ export interface ArchiveSnapshot {
   categories: Category[]
   /** Whether this browser holds an administrator session. */
   isAdmin: boolean
-  /** How the browser hands a file over: straight to blob storage, or to this application. */
-  storageMode: 'blob' | 'local'
   /** Grows by one each time the archive is read again; lists of documents reload on it. */
   revision: number
 }

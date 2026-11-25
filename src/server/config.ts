@@ -28,9 +28,33 @@ export function skillsApiToken(): string | null {
   return token.length >= 32 ? token : null
 }
 
-/** Files go to Vercel Blob when its token is present, otherwise to a local folder. */
-export function storageMode(): 'blob' | 'local' {
-  return process.env.BLOB_READ_WRITE_TOKEN ? 'blob' : 'local'
+export interface S3Settings {
+  endpoint: string
+  region: string
+  bucket: string
+  accessKeyId: string
+  secretAccessKey: string
+  /** `https://host/bucket/key` instead of `https://bucket.host/key`; MinIO needs it. */
+  forcePathStyle: boolean
+}
+
+/** The S3-compatible store the files go to. Null when `S3_BUCKET` is not set. */
+export function s3Settings(): S3Settings | null {
+  const bucket = process.env.S3_BUCKET?.trim() ?? ''
+  if (bucket === '') return null
+  return {
+    endpoint: required('S3_ENDPOINT'),
+    region: process.env.S3_REGION?.trim() || 'us-east-1',
+    bucket,
+    accessKeyId: required('S3_ACCESS_KEY_ID'),
+    secretAccessKey: required('S3_SECRET_ACCESS_KEY'),
+    forcePathStyle: process.env.S3_FORCE_PATH_STYLE !== 'false',
+  }
+}
+
+/** Files go to the S3-compatible store when its bucket is named, otherwise to a local folder. */
+export function storageMode(): 's3' | 'local' {
+  return s3Settings() === null ? 'local' : 's3'
 }
 
 export function localStorageDirectory(): string {
